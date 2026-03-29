@@ -76,9 +76,25 @@ function getRequesterEmail_(e, responses) {
   return String(requesterEmail).trim();
 }
 
+function getOrCreateStatusColumn_(sheet) {
+  var headers = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0];
+  var statusHeader = 'Status';
+  var statusIndex = headers.indexOf(statusHeader);
+
+  if (statusIndex !== -1) {
+    return statusIndex + 1;
+  }
+
+  var newColumn = sheet.getLastColumn() + 1;
+  sheet.getRange(1, newColumn).setValue(statusHeader);
+  return newColumn;
+}
+
 function onFormSubmitTrigger(e) {
   // 1. Get the data from the form submission
   var responses = e.namedValues;
+  var sheet = e.range.getSheet();
+  var row = e.range.getRow();
   
   var requesterName = String(getSubmissionValue_(e, responses, ['Requester Name'])).trim();
   var requesterEmail = getRequesterEmail_(e, responses);
@@ -100,13 +116,21 @@ function onFormSubmitTrigger(e) {
   var start = Utilities.formatDate(rawStart, Session.getScriptTimeZone(), "M/d/yyyy h:mm a");
   var end = Utilities.formatDate(rawEnd, Session.getScriptTimeZone(), "M/d/yyyy h:mm a");
 
+  var statusColumn = getOrCreateStatusColumn_(sheet);
+  var existingStatus = String(sheet.getRange(row, statusColumn).getValue() || '').trim();
+  var isUpdatedSubmission = existingStatus !== '';
+
   // 2. Map wards to bishop emails via Script Properties.
   var bishopEmails = getBishopEmails_();
   var targetBishop = bishopEmails[ward] || getSecret_('STAKE_TECHNOLOGY_SPECIALIST_EMAIL');
 
   // 3. Email 1: The Bishop's FYI
-  var bishopSubject = "FYI: Building Access Request - " + ward;
-  var bishopBody = "Bishop,\n\nThis is an automated notification that a building access request has been scheduled by a member of your ward.\n\n" +
+  var bishopSubject = isUpdatedSubmission
+    ? "FYI: Updated Building Access Request - " + ward
+    : "FYI: Building Access Request - " + ward;
+  var bishopBody = "Bishop,\n\nThis is an automated notification that a building access request has been " +
+                   (isUpdatedSubmission ? "updated" : "scheduled") +
+                   " by a member of your ward.\n\n" +
                    "Requester: " + requesterName + "\n" +
                    "Building: " + building + "\n" +
                    "Time: " + start + " to " + end + "\n\n" +
@@ -115,9 +139,13 @@ function onFormSubmitTrigger(e) {
   MailApp.sendEmail(targetBishop, bishopSubject, bishopBody);
 
   // 4. Email 2: The Requester's Confirmation
-  var requesterSubject = "Kindoo Access Confirmed: " + building;
+  var requesterSubject = isUpdatedSubmission
+    ? "Kindoo Access Updated: " + building
+    : "Kindoo Access Confirmed: " + building;
   var requesterBody = "Hello " + requesterName + ",\n\n" +
-                      "Your access request for the " + building + " has been completed.\n\n" +
+                      "Your access request for the " + building + " has been " +
+                      (isUpdatedSubmission ? "updated" : "completed") +
+                      ".\n\n" +
                       "Scheduled Time: " + start + " to " + end + "\n\n" +
                       "IMPORTANT: Your digital key will be assigned to your Kindoo app a few days before the event begins. " +
                       "Please ensure your Kindoo app email matches your Member Tools email (" + requesterEmail + ").";
@@ -125,9 +153,7 @@ function onFormSubmitTrigger(e) {
   MailApp.sendEmail(requesterEmail, requesterSubject, requesterBody);
 
   // 5. Ledger Documentation
-  // The data is automatically added to the sheet by Google Forms. 
-  // We can add a "Status" note to the last column if desired.
-  var sheet = SpreadsheetApp.getActiveSpreadsheet().getActiveSheet();
-  var lastRow = sheet.getLastRow();
-  sheet.getRange(lastRow, sheet.getLastColumn() + 1).setValue("Vetted and Scheduled");
+  sheet.getRange(row, statusColumn).setValue(
+    isUpdatedSubmission ? "Updated and Scheduled" : "Vetted and Scheduled"
+  );
 }
