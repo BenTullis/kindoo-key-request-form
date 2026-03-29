@@ -37,21 +37,14 @@ function getValueFromEventRow_(e, headerName) {
   var headers = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0];
   var headerIndex = headers.indexOf(headerName);
   if (headerIndex === -1) {
-    return '';
+    return null;
   }
 
   var rowValues = sheet.getRange(e.range.getRow(), 1, 1, sheet.getLastColumn()).getValues()[0];
-  var value = rowValues[headerIndex];
-  return value == null ? '' : String(value).trim();
+  return rowValues[headerIndex];
 }
 
-function getRequesterEmail_(e, responses) {
-  var possibleHeaders = [
-    'Requester Email',
-    'Email Address',
-    'Email'
-  ];
-
+function getSubmissionValue_(e, responses, possibleHeaders) {
   for (var i = 0; i < possibleHeaders.length; i++) {
     var fromNamedValues = getSingleResponseValue_(responses, possibleHeaders[i]);
     if (fromNamedValues) {
@@ -61,27 +54,47 @@ function getRequesterEmail_(e, responses) {
 
   for (var j = 0; j < possibleHeaders.length; j++) {
     var fromRow = getValueFromEventRow_(e, possibleHeaders[j]);
-    if (fromRow) {
+    if (fromRow !== null && fromRow !== '') {
       return fromRow;
     }
   }
 
-  throw new Error('Requester email is missing from the submission row.');
+  return '';
+}
+
+function getRequesterEmail_(e, responses) {
+  var requesterEmail = getSubmissionValue_(e, responses, [
+    'Requester Email',
+    'Email Address',
+    'Email'
+  ]);
+
+  if (!requesterEmail) {
+    throw new Error('Requester email is missing from the submission row.');
+  }
+
+  return String(requesterEmail).trim();
 }
 
 function onFormSubmitTrigger(e) {
   // 1. Get the data from the form submission
   var responses = e.namedValues;
   
-  var requesterName = responses['Requester Name'][0];
+  var requesterName = String(getSubmissionValue_(e, responses, ['Requester Name'])).trim();
   var requesterEmail = getRequesterEmail_(e, responses);
-  var building = responses['Building Location'][0];
-  var ward = responses['Requester\'s Ward'][0];  
+  var building = String(getSubmissionValue_(e, responses, ['Building Location'])).trim();
+  var ward = String(getSubmissionValue_(e, responses, ["Requester's Ward"])).trim();
 
   // --- HUMAN READABLE TIME FIX ---
-  // We convert the string to a Date object, then format it
-  var rawStart = new Date(responses['Access Start (Date & Time)'][0]);
-  var rawEnd = new Date(responses['Access End (Date & Time)'][0]);
+  // We resolve timestamps from namedValues first, then fall back to the row values.
+  var rawStartValue = getSubmissionValue_(e, responses, ['Access Start (Date & Time)']);
+  var rawEndValue = getSubmissionValue_(e, responses, ['Access End (Date & Time)']);
+  var rawStart = new Date(rawStartValue);
+  var rawEnd = new Date(rawEndValue);
+
+  if (isNaN(rawStart.getTime()) || isNaN(rawEnd.getTime())) {
+    throw new Error('Access start/end date is missing or invalid in the submission row.');
+  }
   
   // Format: M/d/yyyy h:mm a (e.g., 3/23/2026 1:01 PM)
   var start = Utilities.formatDate(rawStart, Session.getScriptTimeZone(), "M/d/yyyy h:mm a");
