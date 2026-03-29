@@ -3,12 +3,78 @@
  * This script should be pasted into the Apps Script editor of the GOOGLE SHEET.
  */
 
+function getSecret_(key) {
+  var value = PropertiesService.getScriptProperties().getProperty(key);
+  if (!value) {
+    throw new Error('Missing script property: ' + key);
+  }
+  return value;
+}
+
+function getBishopEmails_() {
+  return {
+    '1st Ward': getSecret_('WARD_1_EMAIL'),
+    '2nd Ward': getSecret_('WARD_2_EMAIL'),
+    '4th Ward': getSecret_('WARD_4_EMAIL'),
+    '5th Ward': getSecret_('WARD_5_EMAIL'),
+    '7th Ward': getSecret_('WARD_7_EMAIL')
+  };
+}
+
+function getSingleResponseValue_(responses, key) {
+  var value = responses[key];
+  if (Array.isArray(value) && value.length > 0) {
+    return String(value[0]).trim();
+  }
+  if (typeof value === 'string') {
+    return value.trim();
+  }
+  return '';
+}
+
+function getValueFromEventRow_(e, headerName) {
+  var sheet = e.range.getSheet();
+  var headers = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0];
+  var headerIndex = headers.indexOf(headerName);
+  if (headerIndex === -1) {
+    return '';
+  }
+
+  var rowValues = sheet.getRange(e.range.getRow(), 1, 1, sheet.getLastColumn()).getValues()[0];
+  var value = rowValues[headerIndex];
+  return value == null ? '' : String(value).trim();
+}
+
+function getRequesterEmail_(e, responses) {
+  var possibleHeaders = [
+    'Requester Email',
+    'Email Address',
+    'Email'
+  ];
+
+  for (var i = 0; i < possibleHeaders.length; i++) {
+    var fromNamedValues = getSingleResponseValue_(responses, possibleHeaders[i]);
+    if (fromNamedValues) {
+      return fromNamedValues;
+    }
+  }
+
+  for (var j = 0; j < possibleHeaders.length; j++) {
+    var fromRow = getValueFromEventRow_(e, possibleHeaders[j]);
+    if (fromRow) {
+      return fromRow;
+    }
+  }
+
+  throw new Error('Requester email is missing from the submission row.');
+}
+
 function onFormSubmitTrigger(e) {
   // 1. Get the data from the form submission
   var responses = e.namedValues;
   
   var requesterName = responses['Requester Name'][0];
-  var requesterEmail = responses['Requester Email'][0];
+  var requesterEmail = getRequesterEmail_(e, responses);
   var building = responses['Building Location'][0];
   var ward = responses['Requester\'s Ward'][0];  
 
@@ -21,17 +87,9 @@ function onFormSubmitTrigger(e) {
   var start = Utilities.formatDate(rawStart, Session.getScriptTimeZone(), "M/d/yyyy h:mm a");
   var end = Utilities.formatDate(rawEnd, Session.getScriptTimeZone(), "M/d/yyyy h:mm a");
 
-  // 2. Map Wards to Bishop Emails
-  // UPDATE THESE with the actual email addresses
-  var bishopEmails = {
-    '1st Ward': 'WARD_1_EMAIL',
-    '2nd Ward': 'WARD_2_EMAIL',
-    '4th Ward': 'WARD_4_EMAIL',
-    '5th Ward': 'WARD_5_EMAIL',
-    '7th Ward': 'WARD_7_EMAIL'
-  };
-
-  var targetBishop = bishopEmails[ward] || "STAKE_TECHNOLOGY_SPECIALIST"; //Fall back email.
+  // 2. Map wards to bishop emails via Script Properties.
+  var bishopEmails = getBishopEmails_();
+  var targetBishop = bishopEmails[ward] || getSecret_('STAKE_TECHNOLOGY_SPECIALIST_EMAIL');
 
   // 3. Email 1: The Bishop's FYI
   var bishopSubject = "FYI: Building Access Request - " + ward;
