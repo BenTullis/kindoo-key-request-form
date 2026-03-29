@@ -108,6 +108,8 @@ function updateExistingKindooForm() {
 // issues, or validation drift, use updateExistingKindooForm() instead.
 function hardResetKindooForm() {
   var form = FormApp.openById(LIVE_FORM_ID);
+  var spreadsheet = SpreadsheetApp.getActiveSpreadsheet();
+  var existingSheetIds = getSheetIds_(spreadsheet);
   var items = form.getItems();
 
   items.forEach(function(item) {
@@ -116,8 +118,9 @@ function hardResetKindooForm() {
 
   applyKindooFormSettings_(form);
   createCanonicalItems_(form);
+  reconnectFormDestination_(form, spreadsheet, existingSheetIds);
 
-  Logger.log('Form hard reset completed. Reconnect to a fresh response sheet before collecting new responses: ' + form.getEditUrl());
+  Logger.log('Form hard reset completed and response destination was reconnected: ' + form.getEditUrl());
 }
 
 // Applies the canonical form-level settings such as title, description,
@@ -212,6 +215,47 @@ function getItemIndexById_(form, itemId) {
     }
   }
   return -1;
+}
+
+// Returns the IDs of every sheet in the given spreadsheet. This is used to
+// detect the new response tab created during a hard reset.
+function getSheetIds_(spreadsheet) {
+  return spreadsheet.getSheets().map(function(sheet) {
+    return sheet.getSheetId();
+  });
+}
+
+// Reconnects the form to the bound spreadsheet after a hard reset, then stores
+// the newly created response tab name in Script Properties so scanner code can
+// continue targeting the right ledger sheet.
+function reconnectFormDestination_(form, spreadsheet, existingSheetIds) {
+  form.removeDestination();
+  form.setDestination(FormApp.DestinationType.SPREADSHEET, spreadsheet.getId());
+
+  var newResponseSheet = findNewResponseSheet_(spreadsheet, existingSheetIds);
+  if (!newResponseSheet) {
+    throw new Error('Hard reset completed, but the new response sheet could not be identified automatically.');
+  }
+
+  PropertiesService.getScriptProperties().setProperty('LEDGER_SHEET_NAME', newResponseSheet.getName());
+}
+
+// Finds the response sheet that was created by comparing the spreadsheet tabs
+// before and after reattaching the form destination.
+function findNewResponseSheet_(spreadsheet, existingSheetIds) {
+  var existingLookup = {};
+  for (var i = 0; i < existingSheetIds.length; i++) {
+    existingLookup[existingSheetIds[i]] = true;
+  }
+
+  var sheets = spreadsheet.getSheets();
+  for (var j = 0; j < sheets.length; j++) {
+    if (!existingLookup[sheets[j].getSheetId()]) {
+      return sheets[j];
+    }
+  }
+
+  return null;
 }
 
 // Finds a live form item using the canonical type and title pair.
