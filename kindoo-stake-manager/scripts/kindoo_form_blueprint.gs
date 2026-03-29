@@ -83,9 +83,29 @@ function updateExistingKindooForm() {
   Logger.log('Form repaired successfully without recreating response columns: ' + form.getEditUrl());
 }
 
-// Full wipe-and-rebuild mode. This recreates all questions from scratch and can
-// bloat the current linked ledger, so reconnect the form to a fresh response
-// sheet before collecting any new responses after using this function.
+// Full wipe-and-rebuild mode.
+//
+// WARNING:
+// This deletes all current form questions and recreates them from scratch.
+// If the form is still connected to the same Google Sheets response destination,
+// Google Forms will treat the recreated questions as new fields and append new
+// columns to the ledger.
+//
+// Use this only when you want a true reset of the form structure.
+//
+// Recommended steps before/after running:
+// 1. Open the Google Form and note the current linked response sheet.
+// 2. If you need to preserve the existing ledger, keep that sheet as historical
+//    data and do not reuse it for new responses after this reset.
+// 3. Run hardResetKindooForm().
+// 4. In Google Forms, reconnect the form to a fresh response destination:
+//    either create a new response spreadsheet or select a clean sheet/tab.
+// 5. Submit one test response and confirm the columns are created only once.
+// 6. Re-enable or verify any form-submit triggers that depend on the response
+//    sheet if your environment requires that check.
+//
+// If you only need to repair accidental edits, missing questions, ordering
+// issues, or validation drift, use updateExistingKindooForm() instead.
 function hardResetKindooForm() {
   var form = FormApp.openById(LIVE_FORM_ID);
   var items = form.getItems();
