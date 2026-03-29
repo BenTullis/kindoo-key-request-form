@@ -30,6 +30,10 @@ function getStakeManagerEmails_() {
   });
 }
 
+function getClaimLinkSecret_() {
+  return getSecret_('CLAIM_LINK_SECRET');
+}
+
 function getSingleResponseValue_(responses, key) {
   var value = responses[key];
   if (Array.isArray(value) && value.length > 0) {
@@ -128,6 +132,10 @@ function getOrCreateStatusColumn_(sheet) {
   return getOrCreateColumnByHeader_(sheet, 'Status');
 }
 
+function getOrCreateRequestIdColumn_(sheet) {
+  return getOrCreateColumnByHeader_(sheet, 'Request ID');
+}
+
 function getCellString_(rowValues, headerMap, headerName) {
   var column = headerMap[headerName];
   if (!column) {
@@ -165,6 +173,78 @@ function parseSheetDate_(value) {
 
 function isSameLocalDate_(left, right, timeZone) {
   return Utilities.formatDate(left, timeZone, 'yyyy-MM-dd') === Utilities.formatDate(right, timeZone, 'yyyy-MM-dd');
+}
+
+function toHexString_(bytes) {
+  return bytes.map(function(byteValue) {
+    var normalized = byteValue < 0 ? byteValue + 256 : byteValue;
+    var hex = normalized.toString(16);
+    return hex.length === 1 ? '0' + hex : hex;
+  }).join('');
+}
+
+function buildClaimToken_(requestId) {
+  var signature = Utilities.computeHmacSha256Signature(requestId, getClaimLinkSecret_());
+  return toHexString_(signature);
+}
+
+function getClaimWebAppUrl_() {
+  var configuredUrl = PropertiesService.getScriptProperties().getProperty('WEB_APP_URL');
+  if (configuredUrl) {
+    return configuredUrl;
+  }
+
+  var deployedUrl = ScriptApp.getService().getUrl();
+  return deployedUrl || '';
+}
+
+function buildClaimUrl_(requestId) {
+  var baseUrl = getClaimWebAppUrl_();
+  if (!baseUrl) {
+    return '';
+  }
+
+  return baseUrl +
+    '?action=claim' +
+    '&requestId=' + encodeURIComponent(requestId) +
+    '&token=' + encodeURIComponent(buildClaimToken_(requestId));
+}
+
+function findNextRequestSequence_(sheet, requestIdColumn) {
+  var lastRow = sheet.getLastRow();
+  if (lastRow < 2) {
+    return 1;
+  }
+
+  var values = sheet.getRange(2, requestIdColumn, lastRow - 1, 1).getValues();
+  var maxNumber = 0;
+
+  for (var i = 0; i < values.length; i++) {
+    var match = String(values[i][0] || '').trim().match(/^REQ-(\d+)$/);
+    if (!match) {
+      continue;
+    }
+
+    var parsed = parseInt(match[1], 10);
+    if (!isNaN(parsed) && parsed > maxNumber) {
+      maxNumber = parsed;
+    }
+  }
+
+  return maxNumber + 1;
+}
+
+function ensureRequestIdForRow_(sheet, row) {
+  var requestIdColumn = getOrCreateRequestIdColumn_(sheet);
+  var existingRequestId = String(sheet.getRange(row, requestIdColumn).getValue() || '').trim();
+
+  if (existingRequestId) {
+    return existingRequestId;
+  }
+
+  var requestId = 'REQ-' + ('0000' + findNextRequestSequence_(sheet, requestIdColumn)).slice(-4);
+  sheet.getRange(row, requestIdColumn).setValue(requestId);
+  return requestId;
 }
 
 function shouldSendManagerAlert_(rowValues, headerMap, now, timeZone) {
@@ -206,6 +286,8 @@ function sendStakeManagerAlert_(details) {
   var subject = 'Kindoo Access Needs Assignment: ' + details.building + ' - ' + details.requesterName;
   var body = 'Stake Managers,\n\n' +
              'A Kindoo access request is within the next 7 days and needs to be claimed.\n\n' +
+             'Claim this request: ' + (details.claimUrl || 'Publish the web app and set WEB_APP_URL to enable claims.') + '\n\n' +
+             'Request ID: ' + details.requestId + '\n' +
              'Requester: ' + details.requesterName + '\n' +
              'Requester Email: ' + details.requesterEmail + '\n' +
              'Requester Phone: ' + details.requesterPhone + '\n' +
@@ -214,9 +296,96 @@ function sendStakeManagerAlert_(details) {
              'Access Start: ' + Utilities.formatDate(details.startDate, timeZone, 'M/d/yyyy h:mm a') + '\n' +
              'Access End: ' + Utilities.formatDate(details.endDate, timeZone, 'M/d/yyyy h:mm a') + '\n' +
              'Ledger Row: ' + details.row + '\n\n' +
-             'This request will continue to alert daily until it is marked Claimed in the ledger.';
+             'This request will continue to alert daily until it is claimed.';
 
   MailApp.sendEmail(getStakeManagerEmails_().join(','), subject, body);
+}
+
+function buildClaimResponseHtml_(title, body) {
+  var html = '<html><body style="font-family:Arial,sans-serif;padding:24px;line-height:1.5;">' +
+             '<h2>' + title + '</h2>' +
+             '<p>' + body + '</p>' +
+             '</body></html>';
+
+  return HtmlService.createHtmlOutput(html).setTitle(title);
+}
+
+function findRowByRequestId_(sheet, requestId, requestIdColumn) {
+  var lastRow = sheet.getLastRow();
+  if (lastRow < 2) {
+    return -1;
+  }
+
+  var values = sheet.getRange(2, requestIdColumn, lastRow - 1, 1).getValues();
+  for (var i = 0; i < values.length; i++) {
+    if (String(values[i][0] || '').trim() === requestId) {
+      return i + 2;
+    }
+  }
+
+  return -1;
+}
+
+function claimRequest_(requestId, token) {
+  if (!requestId || !token) {
+    return buildClaimResponseHtml_('Claim Failed', 'The claim link is missing required information.');
+  }
+
+  if (token !== buildClaimToken_(requestId)) {
+    return buildClaimResponseHtml_('Claim Failed', 'This claim link is invalid.');
+  }
+
+  var sheet = getLedgerSheet_();
+  var requestIdColumn = getOrCreateRequestIdColumn_(sheet);
+  var claimStatusColumn = getOrCreateColumnByHeader_(sheet, 'Manager Claim Status');
+  var claimedByColumn = getOrCreateColumnByHeader_(sheet, 'Claimed By');
+  var claimedAtColumn = getOrCreateColumnByHeader_(sheet, 'Claimed At');
+  var row = findRowByRequestId_(sheet, requestId, requestIdColumn);
+
+  if (row === -1) {
+    return buildClaimResponseHtml_('Claim Failed', 'No ledger row was found for request ID ' + requestId + '.');
+  }
+
+  var existingClaimStatus = String(sheet.getRange(row, claimStatusColumn).getValue() || '').trim();
+  var existingClaimedBy = String(sheet.getRange(row, claimedByColumn).getValue() || '').trim();
+  var existingClaimedAt = parseSheetDate_(sheet.getRange(row, claimedAtColumn).getValue());
+  var timeZone = Session.getScriptTimeZone();
+
+  if (existingClaimStatus.toLowerCase() === 'claimed') {
+    var alreadyClaimedMessage = 'Request ' + requestId + ' was already claimed';
+    if (existingClaimedBy) {
+      alreadyClaimedMessage += ' by ' + existingClaimedBy;
+    }
+    if (existingClaimedAt) {
+      alreadyClaimedMessage += ' on ' + Utilities.formatDate(existingClaimedAt, timeZone, 'M/d/yyyy h:mm a');
+    }
+    alreadyClaimedMessage += '.';
+
+    return buildClaimResponseHtml_('Already Claimed', alreadyClaimedMessage);
+  }
+
+  var activeUserEmail = Session.getActiveUser().getEmail();
+  var claimedBy = activeUserEmail || 'Claimed via web app';
+  var now = new Date();
+
+  sheet.getRange(row, claimStatusColumn).setValue('Claimed');
+  sheet.getRange(row, claimedByColumn).setValue(claimedBy);
+  sheet.getRange(row, claimedAtColumn).setValue(now);
+
+  return buildClaimResponseHtml_(
+    'Request Claimed',
+    'Request ' + requestId + ' has been claimed successfully by ' + claimedBy + '.'
+  );
+}
+
+function doGet(e) {
+  var action = e && e.parameter ? e.parameter.action : '';
+
+  if (action === 'claim') {
+    return claimRequest_(e.parameter.requestId, e.parameter.token);
+  }
+
+  return buildClaimResponseHtml_('Kindoo Claim App', 'This web app is running. Use a claim link from a manager alert email.');
 }
 
 function runUpcomingAccessScan() {
@@ -246,8 +415,11 @@ function runUpcomingAccessScan() {
       continue;
     }
 
+    var requestId = ensureRequestIdForRow_(sheet, rowNumber);
     var details = {
       row: rowNumber,
+      requestId: requestId,
+      claimUrl: buildClaimUrl_(requestId),
       requesterName: getCellString_(rowValues, headerMap, 'Requester Name'),
       requesterEmail: getCellString_(rowValues, headerMap, 'Requester Email'),
       requesterPhone: getCellString_(rowValues, headerMap, 'Requester Phone Number'),
@@ -277,6 +449,7 @@ function onFormSubmitTrigger(e) {
   var responses = e.namedValues;
   var sheet = e.range.getSheet();
   var row = e.range.getRow();
+  ensureRequestIdForRow_(sheet, row);
   
   var requesterName = String(getSubmissionValue_(e, responses, ['Requester Name'])).trim();
   var requesterEmail = getRequesterEmail_(e, responses);

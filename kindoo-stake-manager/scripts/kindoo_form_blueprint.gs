@@ -252,33 +252,33 @@ function createItemForSpec_(form, spec) {
 function configureItemFromSpec_(item, spec) {
   switch (spec.type) {
     case FormApp.ItemType.CHECKBOX:
-      configureSchedulerVerification_(item.asCheckboxItem());
+      configureSchedulerVerification_(item.asCheckboxItem ? item.asCheckboxItem() : item);
       return;
     case FormApp.ItemType.PAGE_BREAK:
-      item.asPageBreakItem().setTitle(spec.title);
+      (item.asPageBreakItem ? item.asPageBreakItem() : item).setTitle(spec.title);
       return;
     case FormApp.ItemType.TEXT:
-      configureTextItem_(item.asTextItem(), spec.title);
+      configureTextItem_(item.asTextItem ? item.asTextItem() : item, spec.title);
       return;
     case FormApp.ItemType.MULTIPLE_CHOICE:
-      item.asMultipleChoiceItem()
+      (item.asMultipleChoiceItem ? item.asMultipleChoiceItem() : item)
         .setTitle(spec.title)
         .setChoiceValues(['Stake Center', 'South Building'])
         .setRequired(true);
       return;
     case FormApp.ItemType.LIST:
-      item.asListItem()
+      (item.asListItem ? item.asListItem() : item)
         .setTitle(spec.title)
         .setChoiceValues(['1st Ward', '2nd Ward', '4th Ward', '5th Ward', '7th Ward'])
         .setRequired(true);
       return;
     case FormApp.ItemType.SECTION_HEADER:
-      item.asSectionHeaderItem()
+      (item.asSectionHeaderItem ? item.asSectionHeaderItem() : item)
         .setTitle(spec.title)
         .setHelpText('Note: There is no form validation to ensure that a date is not set in the past, or that the end date is after the start date. Please take care when filling out.');
       return;
     case FormApp.ItemType.DATETIME:
-      item.asDateTimeItem()
+      (item.asDateTimeItem ? item.asDateTimeItem() : item)
         .setTitle(spec.title)
         .setRequired(true);
       return;
