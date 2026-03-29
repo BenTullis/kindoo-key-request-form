@@ -205,7 +205,7 @@ function sendStakeManagerAlert_(details) {
   var timeZone = Session.getScriptTimeZone();
   var subject = 'Kindoo Access Needs Assignment: ' + details.building + ' - ' + details.requesterName;
   var body = 'Stake Managers,\n\n' +
-             'A Kindoo access request is within the next 7 days and still needs to be claimed.\n\n' +
+             'A Kindoo access request is within the next 7 days and needs to be claimed.\n\n' +
              'Requester: ' + details.requesterName + '\n' +
              'Requester Email: ' + details.requesterEmail + '\n' +
              'Requester Phone: ' + details.requesterPhone + '\n' +
