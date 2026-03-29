@@ -21,6 +21,15 @@ function getBishopEmails_() {
   };
 }
 
+function getStakeManagerEmails_() {
+  var raw = getSecret_('STAKE_MANAGER_EMAILS');
+  return raw.split(',').map(function(email) {
+    return email.trim();
+  }).filter(function(email) {
+    return email !== '';
+  });
+}
+
 function getSingleResponseValue_(responses, key) {
   var value = responses[key];
   if (Array.isArray(value) && value.length > 0) {
@@ -76,18 +85,191 @@ function getRequesterEmail_(e, responses) {
   return String(requesterEmail).trim();
 }
 
-function getOrCreateStatusColumn_(sheet) {
-  var headers = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0];
-  var statusHeader = 'Status';
-  var statusIndex = headers.indexOf(statusHeader);
+function getLedgerSheet_() {
+  var spreadsheet = SpreadsheetApp.getActiveSpreadsheet();
+  var sheetName = PropertiesService.getScriptProperties().getProperty('LEDGER_SHEET_NAME');
 
-  if (statusIndex !== -1) {
-    return statusIndex + 1;
+  if (sheetName) {
+    var namedSheet = spreadsheet.getSheetByName(sheetName);
+    if (!namedSheet) {
+      throw new Error('Missing ledger sheet: ' + sheetName);
+    }
+    return namedSheet;
+  }
+
+  return spreadsheet.getSheets()[0];
+}
+
+function getHeaderMap_(sheet) {
+  var headers = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0];
+  var headerMap = {};
+
+  for (var i = 0; i < headers.length; i++) {
+    if (headers[i]) {
+      headerMap[String(headers[i]).trim()] = i + 1;
+    }
+  }
+
+  return headerMap;
+}
+
+function getOrCreateColumnByHeader_(sheet, headerName) {
+  var headerMap = getHeaderMap_(sheet);
+  if (headerMap[headerName]) {
+    return headerMap[headerName];
   }
 
   var newColumn = sheet.getLastColumn() + 1;
-  sheet.getRange(1, newColumn).setValue(statusHeader);
+  sheet.getRange(1, newColumn).setValue(headerName);
   return newColumn;
+}
+
+function getOrCreateStatusColumn_(sheet) {
+  return getOrCreateColumnByHeader_(sheet, 'Status');
+}
+
+function getCellString_(rowValues, headerMap, headerName) {
+  var column = headerMap[headerName];
+  if (!column) {
+    return '';
+  }
+
+  var value = rowValues[column - 1];
+  return value == null ? '' : String(value).trim();
+}
+
+function getCellValue_(rowValues, headerMap, headerName) {
+  var column = headerMap[headerName];
+  if (!column) {
+    return null;
+  }
+
+  return rowValues[column - 1];
+}
+
+function parseSheetDate_(value) {
+  if (!value) {
+    return null;
+  }
+
+  if (Object.prototype.toString.call(value) === '[object Date]' && !isNaN(value.getTime())) {
+    return value;
+  }
+
+  var parsed = new Date(value);
+  if (isNaN(parsed.getTime())) {
+    return null;
+  }
+  return parsed;
+}
+
+function isSameLocalDate_(left, right, timeZone) {
+  return Utilities.formatDate(left, timeZone, 'yyyy-MM-dd') === Utilities.formatDate(right, timeZone, 'yyyy-MM-dd');
+}
+
+function shouldSendManagerAlert_(rowValues, headerMap, now, timeZone) {
+  var status = getCellString_(rowValues, headerMap, 'Status');
+  var claimStatus = getCellString_(rowValues, headerMap, 'Manager Claim Status');
+  var lastAlertSentAt = parseSheetDate_(getCellValue_(rowValues, headerMap, 'Manager Alert Last Sent At'));
+  var startDate = parseSheetDate_(getCellValue_(rowValues, headerMap, 'Access Start (Date & Time)'));
+
+  if (!startDate) {
+    return false;
+  }
+
+  if (claimStatus.toLowerCase() === 'claimed') {
+    return false;
+  }
+
+  if (status !== 'Vetted and Scheduled' && status !== 'Updated and Scheduled') {
+    return false;
+  }
+
+  if (startDate.getTime() <= now.getTime()) {
+    return false;
+  }
+
+  var sevenDaysFromNow = new Date(now.getTime() + (7 * 24 * 60 * 60 * 1000));
+  if (startDate.getTime() > sevenDaysFromNow.getTime()) {
+    return false;
+  }
+
+  if (lastAlertSentAt && isSameLocalDate_(lastAlertSentAt, now, timeZone)) {
+    return false;
+  }
+
+  return true;
+}
+
+function sendStakeManagerAlert_(details) {
+  var timeZone = Session.getScriptTimeZone();
+  var subject = 'Kindoo Access Needs Assignment: ' + details.building + ' - ' + details.requesterName;
+  var body = 'Stake Managers,\n\n' +
+             'A Kindoo access request is within the next 7 days and still needs to be claimed.\n\n' +
+             'Requester: ' + details.requesterName + '\n' +
+             'Requester Email: ' + details.requesterEmail + '\n' +
+             'Requester Phone: ' + details.requesterPhone + '\n' +
+             'Building: ' + details.building + '\n' +
+             'Ward: ' + details.ward + '\n' +
+             'Access Start: ' + Utilities.formatDate(details.startDate, timeZone, 'M/d/yyyy h:mm a') + '\n' +
+             'Access End: ' + Utilities.formatDate(details.endDate, timeZone, 'M/d/yyyy h:mm a') + '\n' +
+             'Ledger Row: ' + details.row + '\n\n' +
+             'This request will continue to alert daily until it is marked Claimed in the ledger.';
+
+  MailApp.sendEmail(getStakeManagerEmails_().join(','), subject, body);
+}
+
+function runUpcomingAccessScan() {
+  var sheet = getLedgerSheet_();
+  var statusColumn = getOrCreateStatusColumn_(sheet);
+  var claimStatusColumn = getOrCreateColumnByHeader_(sheet, 'Manager Claim Status');
+  var alertStatusColumn = getOrCreateColumnByHeader_(sheet, 'Manager Alert Status');
+  var alertLastSentColumn = getOrCreateColumnByHeader_(sheet, 'Manager Alert Last Sent At');
+  var alertCountColumn = getOrCreateColumnByHeader_(sheet, 'Manager Alert Count');
+  var headerMap = getHeaderMap_(sheet);
+  var lastRow = sheet.getLastRow();
+  var lastColumn = sheet.getLastColumn();
+
+  if (lastRow < 2) {
+    return;
+  }
+
+  var rows = sheet.getRange(2, 1, lastRow - 1, lastColumn).getValues();
+  var now = new Date();
+  var timeZone = Session.getScriptTimeZone();
+
+  for (var i = 0; i < rows.length; i++) {
+    var rowValues = rows[i];
+    var rowNumber = i + 2;
+
+    if (!shouldSendManagerAlert_(rowValues, headerMap, now, timeZone)) {
+      continue;
+    }
+
+    var details = {
+      row: rowNumber,
+      requesterName: getCellString_(rowValues, headerMap, 'Requester Name'),
+      requesterEmail: getCellString_(rowValues, headerMap, 'Requester Email'),
+      requesterPhone: getCellString_(rowValues, headerMap, 'Requester Phone Number'),
+      building: getCellString_(rowValues, headerMap, 'Building Location'),
+      ward: getCellString_(rowValues, headerMap, "Requester's Ward"),
+      startDate: parseSheetDate_(getCellValue_(rowValues, headerMap, 'Access Start (Date & Time)')),
+      endDate: parseSheetDate_(getCellValue_(rowValues, headerMap, 'Access End (Date & Time)'))
+    };
+
+    sendStakeManagerAlert_(details);
+
+    var existingAlertCount = parseInt(sheet.getRange(rowNumber, alertCountColumn).getValue(), 10);
+    sheet.getRange(rowNumber, claimStatusColumn).setValue(
+      String(sheet.getRange(rowNumber, claimStatusColumn).getValue() || '').trim() || 'Unclaimed'
+    );
+    sheet.getRange(rowNumber, alertStatusColumn).setValue('Alerted');
+    sheet.getRange(rowNumber, alertLastSentColumn).setValue(now);
+    sheet.getRange(rowNumber, alertCountColumn).setValue(isNaN(existingAlertCount) ? 1 : existingAlertCount + 1);
+    sheet.getRange(rowNumber, statusColumn).setValue(
+      String(sheet.getRange(rowNumber, statusColumn).getValue() || '').trim()
+    );
+  }
 }
 
 function onFormSubmitTrigger(e) {
