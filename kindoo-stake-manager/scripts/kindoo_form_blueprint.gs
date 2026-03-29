@@ -6,9 +6,9 @@
  * without recreating the canonical response-bound questions, which avoids
  * bloating the linked response sheet.
  *
- * Use hardResetKindooForm() only when you intentionally want a full wipe and
- * rebuild. That mode recreates all items and should be paired with a fresh
- * response destination.
+ * Use createNewKindooForm() only when you intentionally want a separate new
+ * form. It creates a brand-new form from the same canonical blueprint without
+ * touching the live form or its linked response sheet.
  */
 
 var LIVE_FORM_ID = '1ukbTtHgnHgpsce9_NAp196HlUBELamRkzRKHsBRxj9Y';
@@ -83,44 +83,17 @@ function updateExistingKindooForm() {
   Logger.log('Form repaired successfully without recreating response columns: ' + form.getEditUrl());
 }
 
-// Full wipe-and-rebuild mode.
-//
-// WARNING:
-// This deletes all current form questions and recreates them from scratch.
-// If the form is still connected to the same Google Sheets response destination,
-// Google Forms will treat the recreated questions as new fields and append new
-// columns to the ledger.
-//
-// Use this only when you want a true reset of the form structure.
-//
-// Recommended steps before/after running:
-// 1. Open the Google Form and note the current linked response sheet.
-// 2. If you need to preserve the existing ledger, keep that sheet as historical
-//    data and do not reuse it for new responses after this reset.
-// 3. Run hardResetKindooForm().
-// 4. In Google Forms, reconnect the form to a fresh response destination:
-//    either create a new response spreadsheet or select a clean sheet/tab.
-// 5. Submit one test response and confirm the columns are created only once.
-// 6. Re-enable or verify any form-submit triggers that depend on the response
-//    sheet if your environment requires that check.
-//
-// If you only need to repair accidental edits, missing questions, ordering
-// issues, or validation drift, use updateExistingKindooForm() instead.
-function hardResetKindooForm() {
-  var form = FormApp.openById(LIVE_FORM_ID);
-  var spreadsheet = SpreadsheetApp.getActiveSpreadsheet();
-  var existingSheetIds = getSheetIds_(spreadsheet);
-  var items = form.getItems();
-
-  items.forEach(function(item) {
-    form.deleteItem(item);
-  });
+// Emergency fallback. This creates a brand-new form from the canonical spec
+// without mutating the current live form or its linked ledger.
+function createNewKindooForm() {
+  var form = FormApp.create(KINDOO_FORM_SPEC.title);
 
   applyKindooFormSettings_(form);
   createCanonicalItems_(form);
-  reconnectFormDestination_(form, spreadsheet, existingSheetIds);
 
-  Logger.log('Form hard reset completed and response destination was reconnected: ' + form.getEditUrl());
+  Logger.log('New Kindoo form created.');
+  Logger.log('Edit URL: ' + form.getEditUrl());
+  Logger.log('Published URL: ' + form.getPublishedUrl());
 }
 
 // Applies the canonical form-level settings such as title, description,
@@ -179,7 +152,7 @@ function ensureCanonicalItems_(form) {
 }
 
 // Creates the full canonical item set from scratch. This is used only by the
-// hard reset path.
+// create-new-form fallback.
 function createCanonicalItems_(form) {
   for (var i = 0; i < KINDOO_FORM_SPEC.items.length; i++) {
     var spec = KINDOO_FORM_SPEC.items[i];
@@ -215,47 +188,6 @@ function getItemIndexById_(form, itemId) {
     }
   }
   return -1;
-}
-
-// Returns the IDs of every sheet in the given spreadsheet. This is used to
-// detect the new response tab created during a hard reset.
-function getSheetIds_(spreadsheet) {
-  return spreadsheet.getSheets().map(function(sheet) {
-    return sheet.getSheetId();
-  });
-}
-
-// Reconnects the form to the bound spreadsheet after a hard reset, then stores
-// the newly created response tab name in Script Properties so scanner code can
-// continue targeting the right ledger sheet.
-function reconnectFormDestination_(form, spreadsheet, existingSheetIds) {
-  form.removeDestination();
-  form.setDestination(FormApp.DestinationType.SPREADSHEET, spreadsheet.getId());
-
-  var newResponseSheet = findNewResponseSheet_(spreadsheet, existingSheetIds);
-  if (!newResponseSheet) {
-    throw new Error('Hard reset completed, but the new response sheet could not be identified automatically.');
-  }
-
-  PropertiesService.getScriptProperties().setProperty('LEDGER_SHEET_NAME', newResponseSheet.getName());
-}
-
-// Finds the response sheet that was created by comparing the spreadsheet tabs
-// before and after reattaching the form destination.
-function findNewResponseSheet_(spreadsheet, existingSheetIds) {
-  var existingLookup = {};
-  for (var i = 0; i < existingSheetIds.length; i++) {
-    existingLookup[existingSheetIds[i]] = true;
-  }
-
-  var sheets = spreadsheet.getSheets();
-  for (var j = 0; j < sheets.length; j++) {
-    if (!existingLookup[sheets[j].getSheetId()]) {
-      return sheets[j];
-    }
-  }
-
-  return null;
 }
 
 // Finds a live form item using the canonical type and title pair.
@@ -305,16 +237,10 @@ function configureItemFromSpec_(item, spec) {
       configureTextItem_(item.asTextItem ? item.asTextItem() : item, spec.title);
       return;
     case FormApp.ItemType.MULTIPLE_CHOICE:
-      (item.asMultipleChoiceItem ? item.asMultipleChoiceItem() : item)
-        .setTitle(spec.title)
-        .setChoiceValues(['Stake Center', 'South Building'])
-        .setRequired(true);
+      configureBuildingLocationItem_(item.asMultipleChoiceItem ? item.asMultipleChoiceItem() : item);
       return;
     case FormApp.ItemType.LIST:
-      (item.asListItem ? item.asListItem() : item)
-        .setTitle(spec.title)
-        .setChoiceValues(['1st Ward', '2nd Ward', '4th Ward', '5th Ward', '7th Ward'])
-        .setRequired(true);
+      configureWardListItem_(item.asListItem ? item.asListItem() : item);
       return;
     case FormApp.ItemType.SECTION_HEADER:
       (item.asSectionHeaderItem ? item.asSectionHeaderItem() : item)
@@ -350,6 +276,26 @@ function configureSchedulerVerification_(checkboxItem) {
       checkboxItem.createChoice('I have scheduled the event.')
     ])
     .setValidation(validation);
+}
+
+// Configures the building selector using explicit choices so the live form
+// always renders the expected two radio options.
+function configureBuildingLocationItem_(multipleChoiceItem) {
+  multipleChoiceItem
+    .setTitle('Building Location')
+    .setChoices([
+      multipleChoiceItem.createChoice('Stake Center'),
+      multipleChoiceItem.createChoice('South Building')
+    ])
+    .setRequired(true);
+}
+
+// Configures the ward dropdown with the canonical ward list.
+function configureWardListItem_(listItem) {
+  listItem
+    .setTitle('Requester\'s Ward')
+    .setChoiceValues(['1st Ward', '2nd Ward', '4th Ward', '5th Ward', '7th Ward'])
+    .setRequired(true);
 }
 
 // Configures each canonical text field with the correct validation and help
