@@ -28,11 +28,11 @@ graph TD
         G1[Manager clicks 'Claim' link in email]
         I1[Issue Kindoo Digital Key <br/>matching requested times]
         J1[Mark Ticket as 'Completed' in Ledger]
+        M1{{"Managers receive <br/>'Completed' Email"}}
     end
 
     subgraph "BISHOP (Oversight)"
         E1{{"Bishop receives FYI Email <br/>(No action needed)"}}
-        L2{{"Bishop receives <br/>'Success' Email"}}
     end
 
     %% Connections
@@ -52,5 +52,5 @@ graph TD
     I1 --> J1
     J1 --> K1
     K1 -.-> L1
-    K1 -.-> L2
+    K1 -.-> M1
 ```
