@@ -117,9 +117,9 @@ function onFormSubmitTrigger(e) {
   // 4. Email 2: The Requester's Confirmation
   var requesterSubject = "Kindoo Access Confirmed: " + building;
   var requesterBody = "Hello " + requesterName + ",\n\n" +
-                      "Your access request for the " + building + " has been logged.\n\n" +
+                      "Your access request for the " + building + " has been completed.\n\n" +
                       "Scheduled Time: " + start + " to " + end + "\n\n" +
-                      "IMPORTANT: Your digital key will be assigned to your Kindoo app 7 days before the event begins. " +
+                      "IMPORTANT: Your digital key will be assigned to your Kindoo app a few days before the event begins. " +
                       "Please ensure your Kindoo app email matches your Member Tools email (" + requesterEmail + ").";
 
   MailApp.sendEmail(requesterEmail, requesterSubject, requesterBody);
