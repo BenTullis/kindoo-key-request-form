@@ -34,6 +34,10 @@ function getClaimLinkSecret_() {
   return getSecret_('CLAIM_LINK_SECRET');
 }
 
+function getIssuedLinkSecret_() {
+  return getSecret_('ISSUED_LINK_SECRET');
+}
+
 function getSingleResponseValue_(responses, key) {
   var value = responses[key];
   if (Array.isArray(value) && value.length > 0) {
@@ -196,9 +200,17 @@ function toHexString_(bytes) {
   }).join('');
 }
 
-function buildClaimToken_(requestId) {
-  var signature = Utilities.computeHmacSha256Signature(requestId, getClaimLinkSecret_());
+function buildSignedToken_(action, requestId, secret) {
+  var signature = Utilities.computeHmacSha256Signature(action + ':' + requestId, secret);
   return toHexString_(signature);
+}
+
+function buildClaimToken_(requestId) {
+  return buildSignedToken_('claim', requestId, getClaimLinkSecret_());
+}
+
+function buildIssuedToken_(requestId) {
+  return buildSignedToken_('issued', requestId, getIssuedLinkSecret_());
 }
 
 function getClaimWebAppUrl_() {
@@ -221,6 +233,18 @@ function buildClaimUrl_(requestId) {
     '?action=claim' +
     '&requestId=' + encodeURIComponent(requestId) +
     '&token=' + encodeURIComponent(buildClaimToken_(requestId));
+}
+
+function buildIssuedUrl_(requestId) {
+  var baseUrl = getClaimWebAppUrl_();
+  if (!baseUrl) {
+    return '';
+  }
+
+  return baseUrl +
+    '?action=issued' +
+    '&requestId=' + encodeURIComponent(requestId) +
+    '&token=' + encodeURIComponent(buildIssuedToken_(requestId));
 }
 
 function findNextRequestSequence_(sheet, requestIdColumn) {
@@ -384,13 +408,129 @@ function sendStakeManagerAlert_(details) {
   });
 }
 
-function buildClaimResponseHtml_(title, body) {
+function buildClaimResponseHtml_(title, body, accentColor) {
+  var color = accentColor || '#1a73e8';
   var html = '<html><body style="font-family:Arial,sans-serif;padding:24px;line-height:1.5;">' +
+             '<div style="max-width:800px;margin:0 auto;border-left:8px solid ' + color + ';padding-left:20px;">' +
              '<h2>' + title + '</h2>' +
              '<p>' + body + '</p>' +
-             '</body></html>';
+             '</div></body></html>';
 
   return HtmlService.createHtmlOutput(html).setTitle(title);
+}
+
+function getRequesterDetailsForRow_(sheet, row) {
+  var headerMap = getHeaderMap_(sheet);
+  var rowValues = sheet.getRange(row, 1, 1, sheet.getLastColumn()).getValues()[0];
+
+  return {
+    requesterName: getCellString_(rowValues, headerMap, 'Requester Name'),
+    requesterEmail: getCellString_(rowValues, headerMap, 'Requester Email'),
+    requesterPhone: getCellString_(rowValues, headerMap, 'Requester Phone Number'),
+    building: getCellString_(rowValues, headerMap, 'Building Location'),
+    ward: getCellString_(rowValues, headerMap, "Requester's Ward"),
+    startDate: parseSheetDate_(getCellValue_(rowValues, headerMap, 'Access Start (Date & Time)')),
+    endDate: parseSheetDate_(getCellValue_(rowValues, headerMap, 'Access End (Date & Time)'))
+  };
+}
+
+function sendKeyIssuancePromptEmail_(claimerEmail, requestId, details) {
+  if (!claimerEmail || claimerEmail.indexOf('@') === -1) {
+    return;
+  }
+
+  var timeZone = Session.getScriptTimeZone();
+  var issueUrl = buildIssuedUrl_(requestId);
+  var subject = 'Kindoo Key Assignment Needed: ' + requestId;
+  var body = 'You claimed request ' + requestId + '.\n\n' +
+             'Next step: schedule the Kindoo access key for this request.\n\n' +
+             'Requester: ' + details.requesterName + '\n' +
+             'Building: ' + details.building + '\n' +
+             'Ward: ' + details.ward + '\n' +
+             'Access Start: ' + Utilities.formatDate(details.startDate, timeZone, 'M/d/yyyy h:mm a') + '\n' +
+             'Access End: ' + Utilities.formatDate(details.endDate, timeZone, 'M/d/yyyy h:mm a') + '\n\n' +
+             'After you issue the Kindoo key, click this link:\n' + issueUrl;
+  var htmlBody = '<p>You claimed request <strong>' + requestId + '</strong>.</p>' +
+                 '<p><strong>Next step:</strong> schedule the Kindoo access key for this request.</p>' +
+                 '<p><strong>Requester:</strong> ' + details.requesterName + '<br>' +
+                 '<strong>Building:</strong> ' + details.building + '<br>' +
+                 '<strong>Ward:</strong> ' + details.ward + '<br>' +
+                 '<strong>Access Start:</strong> ' + Utilities.formatDate(details.startDate, timeZone, 'M/d/yyyy h:mm a') + '<br>' +
+                 '<strong>Access End:</strong> ' + Utilities.formatDate(details.endDate, timeZone, 'M/d/yyyy h:mm a') + '</p>' +
+                 '<p><a href="' + issueUrl + '" style="display:inline-block;padding:10px 16px;background:#188038;color:#ffffff;text-decoration:none;border-radius:4px;">Kindoo Key Issued</a></p>';
+
+  MailApp.sendEmail({
+    to: claimerEmail,
+    subject: subject,
+    body: body,
+    htmlBody: htmlBody
+  });
+}
+
+function sendIssuedNotificationToOtherManagers_(issuerEmail, requestId, details) {
+  var recipients = getStakeManagerEmails_().filter(function(email) {
+    return email && email.toLowerCase() !== String(issuerEmail || '').toLowerCase();
+  });
+
+  if (recipients.length === 0) {
+    return;
+  }
+
+  var timeZone = Session.getScriptTimeZone();
+  var issuerLabel = issuerEmail || 'A manager';
+  var subject = 'Kindoo Key Issued: ' + requestId;
+  var body = issuerLabel + ' has issued the Kindoo key for request ' + requestId + '.\n\n' +
+             'Requester: ' + details.requesterName + '\n' +
+             'Building: ' + details.building + '\n' +
+             'Ward: ' + details.ward + '\n' +
+             'Access Start: ' + Utilities.formatDate(details.startDate, timeZone, 'M/d/yyyy h:mm a') + '\n' +
+             'Access End: ' + Utilities.formatDate(details.endDate, timeZone, 'M/d/yyyy h:mm a');
+  var htmlBody = '<p><strong>' + issuerLabel + '</strong> has issued the Kindoo key for request <strong>' + requestId + '</strong>.</p>' +
+                 '<p><strong>Requester:</strong> ' + details.requesterName + '<br>' +
+                 '<strong>Building:</strong> ' + details.building + '<br>' +
+                 '<strong>Ward:</strong> ' + details.ward + '<br>' +
+                 '<strong>Access Start:</strong> ' + Utilities.formatDate(details.startDate, timeZone, 'M/d/yyyy h:mm a') + '<br>' +
+                 '<strong>Access End:</strong> ' + Utilities.formatDate(details.endDate, timeZone, 'M/d/yyyy h:mm a') + '</p>';
+
+  MailApp.sendEmail({
+    to: recipients.join(','),
+    subject: subject,
+    body: body,
+    htmlBody: htmlBody
+  });
+}
+
+function sendClaimedNotificationToOtherManagers_(claimerEmail, requestId, details) {
+  var recipients = getStakeManagerEmails_().filter(function(email) {
+    return email && email.toLowerCase() !== String(claimerEmail || '').toLowerCase();
+  });
+
+  if (recipients.length === 0) {
+    return;
+  }
+
+  var timeZone = Session.getScriptTimeZone();
+  var claimerLabel = claimerEmail || 'A manager';
+  var subject = 'Kindoo Request Claimed: ' + requestId;
+  var body = claimerLabel + ' has claimed request ' + requestId + '.\n\n' +
+             'Requester: ' + details.requesterName + '\n' +
+             'Building: ' + details.building + '\n' +
+             'Ward: ' + details.ward + '\n' +
+             'Access Start: ' + Utilities.formatDate(details.startDate, timeZone, 'M/d/yyyy h:mm a') + '\n' +
+             'Access End: ' + Utilities.formatDate(details.endDate, timeZone, 'M/d/yyyy h:mm a');
+  var htmlBody = '<p><strong>' + claimerLabel + '</strong> has claimed request <strong>' + requestId + '</strong>.</p>' +
+                 '<p><strong>Requester:</strong> ' + details.requesterName + '<br>' +
+                 '<strong>Building:</strong> ' + details.building + '<br>' +
+                 '<strong>Ward:</strong> ' + details.ward + '<br>' +
+                 '<strong>Access Start:</strong> ' + Utilities.formatDate(details.startDate, timeZone, 'M/d/yyyy h:mm a') + '<br>' +
+                 '<strong>Access End:</strong> ' + Utilities.formatDate(details.endDate, timeZone, 'M/d/yyyy h:mm a') + '</p>';
+
+  MailApp.sendEmail({
+    to: recipients.join(','),
+    subject: subject,
+    body: body,
+    htmlBody: htmlBody
+  });
 }
 
 function findRowByRequestId_(sheet, requestId, requestIdColumn) {
@@ -411,11 +551,11 @@ function findRowByRequestId_(sheet, requestId, requestIdColumn) {
 
 function claimRequest_(requestId, token) {
   if (!requestId || !token) {
-    return buildClaimResponseHtml_('Claim Failed', 'The claim link is missing required information.');
+    return buildClaimResponseHtml_('Claim Failed', 'The claim link is missing required information.', '#d93025');
   }
 
   if (token !== buildClaimToken_(requestId)) {
-    return buildClaimResponseHtml_('Claim Failed', 'This claim link is invalid.');
+    return buildClaimResponseHtml_('Claim Failed', 'This claim link is invalid.', '#d93025');
   }
 
   var sheet = getLedgerSheet_();
@@ -427,13 +567,14 @@ function claimRequest_(requestId, token) {
   var row = findRowByRequestId_(sheet, requestId, requestIdColumn);
 
   if (row === -1) {
-    return buildClaimResponseHtml_('Claim Failed', 'No ledger row was found for request ID ' + requestId + '.');
+    return buildClaimResponseHtml_('Claim Failed', 'No ledger row was found for request ID ' + requestId + '.', '#d93025');
   }
 
   var existingClaimStatus = String(sheet.getRange(row, claimStatusColumn).getValue() || '').trim();
   var existingClaimedBy = String(sheet.getRange(row, claimedByColumn).getValue() || '').trim();
   var existingClaimedAt = parseSheetDate_(sheet.getRange(row, claimedAtColumn).getValue());
   var timeZone = Session.getScriptTimeZone();
+  var details = getRequesterDetailsForRow_(sheet, row);
 
   if (existingClaimStatus.toLowerCase() === 'claimed') {
     var alreadyClaimedMessage = 'Request ' + requestId + ' was already claimed';
@@ -456,10 +597,65 @@ function claimRequest_(requestId, token) {
   sheet.getRange(row, alertStatusColumn).setValue('Claimed');
   sheet.getRange(row, claimedByColumn).setValue(claimedBy);
   sheet.getRange(row, claimedAtColumn).setValue(now);
+  sendKeyIssuancePromptEmail_(claimedBy, requestId, details);
+  sendClaimedNotificationToOtherManagers_(claimedBy, requestId, details);
 
   return buildClaimResponseHtml_(
     'Request Claimed',
-    'Request ' + requestId + ' has been claimed successfully by ' + claimedBy + '.'
+    'Request ' + requestId + ' has been claimed successfully by ' + claimedBy + '. Next step: schedule the Kindoo access key. A follow-up email has been sent with a button to mark the key as issued.',
+    '#188038'
+  );
+}
+
+function markRequestIssued_(requestId, token) {
+  if (!requestId || !token) {
+    return buildClaimResponseHtml_('Issue Update Failed', 'The issued link is missing required information.', '#d93025');
+  }
+
+  if (token !== buildIssuedToken_(requestId)) {
+    return buildClaimResponseHtml_('Issue Update Failed', 'This issued link is invalid.', '#d93025');
+  }
+
+  var sheet = getLedgerSheet_();
+  var requestIdColumn = getOrCreateRequestIdColumn_(sheet);
+  var claimStatusColumn = getOrCreateColumnByHeader_(sheet, 'Manager Claim Status');
+  var alertStatusColumn = getOrCreateColumnByHeader_(sheet, 'Manager Alert Status');
+  var issuedByColumn = getOrCreateColumnByHeader_(sheet, 'Issued By');
+  var issuedAtColumn = getOrCreateColumnByHeader_(sheet, 'Issued At');
+  var keyStatusColumn = getOrCreateColumnByHeader_(sheet, 'Kindoo Key Status');
+  var row = findRowByRequestId_(sheet, requestId, requestIdColumn);
+
+  if (row === -1) {
+    return buildClaimResponseHtml_('Issue Update Failed', 'No ledger row was found for request ID ' + requestId + '.', '#d93025');
+  }
+
+  var existingIssuedAt = parseSheetDate_(sheet.getRange(row, issuedAtColumn).getValue());
+  var existingIssuedBy = String(sheet.getRange(row, issuedByColumn).getValue() || '').trim();
+  var issuerEmail = Session.getActiveUser().getEmail() || existingIssuedBy || String(sheet.getRange(row, getOrCreateColumnByHeader_(sheet, 'Claimed By')).getValue() || '').trim();
+  var details = getRequesterDetailsForRow_(sheet, row);
+
+  if (existingIssuedAt) {
+    var alreadyIssuedMessage = 'Request ' + requestId + ' was already marked issued';
+    if (existingIssuedBy) {
+      alreadyIssuedMessage += ' by ' + existingIssuedBy;
+    }
+    alreadyIssuedMessage += ' on ' + Utilities.formatDate(existingIssuedAt, Session.getScriptTimeZone(), 'M/d/yyyy h:mm a') + '.';
+    return buildClaimResponseHtml_('Already Issued', alreadyIssuedMessage, '#d93025');
+  }
+
+  var now = new Date();
+  sheet.getRange(row, claimStatusColumn).setValue('Claimed');
+  sheet.getRange(row, alertStatusColumn).setValue('Issued');
+  sheet.getRange(row, keyStatusColumn).setValue('Issued');
+  sheet.getRange(row, issuedByColumn).setValue(issuerEmail || 'Issued via web app');
+  sheet.getRange(row, issuedAtColumn).setValue(now);
+
+  sendIssuedNotificationToOtherManagers_(issuerEmail, requestId, details);
+
+  return buildClaimResponseHtml_(
+    'Kindoo Key Issued',
+    'Request ' + requestId + ' has been marked as issued. The other managers have been notified.',
+    '#188038'
   );
 }
 
@@ -468,6 +664,10 @@ function doGet(e) {
 
   if (action === 'claim') {
     return claimRequest_(e.parameter.requestId, e.parameter.token);
+  }
+
+  if (action === 'issued') {
+    return markRequestIssued_(e.parameter.requestId, e.parameter.token);
   }
 
   return buildClaimResponseHtml_('Kindoo Claim App', 'This web app is running. Use a claim link from a manager alert email.');
