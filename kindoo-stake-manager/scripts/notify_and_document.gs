@@ -109,7 +109,7 @@ function getHeaderMap_(sheet) {
   var headerMap = {};
 
   for (var i = 0; i < headers.length; i++) {
-    if (headers[i]) {
+    if (headers[i] && !headerMap[String(headers[i]).trim()]) {
       headerMap[String(headers[i]).trim()] = i + 1;
     }
   }
@@ -117,10 +117,23 @@ function getHeaderMap_(sheet) {
   return headerMap;
 }
 
+function getColumnsByHeader_(sheet, headerName) {
+  var headers = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0];
+  var matches = [];
+
+  for (var i = 0; i < headers.length; i++) {
+    if (String(headers[i] || '').trim() === headerName) {
+      matches.push(i + 1);
+    }
+  }
+
+  return matches;
+}
+
 function getOrCreateColumnByHeader_(sheet, headerName) {
-  var headerMap = getHeaderMap_(sheet);
-  if (headerMap[headerName]) {
-    return headerMap[headerName];
+  var matchingColumns = getColumnsByHeader_(sheet, headerName);
+  if (matchingColumns.length > 0) {
+    return matchingColumns[0];
   }
 
   var newColumn = sheet.getLastColumn() + 1;
@@ -245,6 +258,53 @@ function ensureRequestIdForRow_(sheet, row) {
   var requestId = 'REQ-' + ('0000' + findNextRequestSequence_(sheet, requestIdColumn)).slice(-4);
   sheet.getRange(row, requestIdColumn).setValue(requestId);
   return requestId;
+}
+
+function cleanupDuplicateRequestIdColumns() {
+  var sheet = getLedgerSheet_();
+  var requestIdColumns = getColumnsByHeader_(sheet, 'Request ID');
+
+  if (requestIdColumns.length <= 1) {
+    Logger.log('No duplicate Request ID columns found on sheet: ' + sheet.getName());
+    return;
+  }
+
+  var canonicalColumn = requestIdColumns[0];
+  var duplicateColumns = requestIdColumns.slice(1);
+  var lastRow = sheet.getLastRow();
+
+  if (lastRow >= 2) {
+    var canonicalValues = sheet.getRange(2, canonicalColumn, lastRow - 1, 1).getValues();
+
+    for (var i = 0; i < duplicateColumns.length; i++) {
+      var duplicateColumn = duplicateColumns[i];
+      var duplicateValues = sheet.getRange(2, duplicateColumn, lastRow - 1, 1).getValues();
+
+      for (var rowIndex = 0; rowIndex < duplicateValues.length; rowIndex++) {
+        var canonicalValue = String(canonicalValues[rowIndex][0] || '').trim();
+        var duplicateValue = String(duplicateValues[rowIndex][0] || '').trim();
+
+        if (!canonicalValue && duplicateValue) {
+          canonicalValues[rowIndex][0] = duplicateValue;
+        }
+      }
+    }
+
+    sheet.getRange(2, canonicalColumn, lastRow - 1, 1).setValues(canonicalValues);
+  }
+
+  for (var j = duplicateColumns.length - 1; j >= 0; j--) {
+    sheet.deleteColumn(duplicateColumns[j]);
+  }
+
+  Logger.log(
+    'Merged duplicate Request ID columns into column ' +
+    canonicalColumn +
+    ' and removed ' +
+    duplicateColumns.length +
+    ' duplicate column(s) on sheet ' +
+    sheet.getName()
+  );
 }
 
 function shouldSendManagerAlert_(rowValues, headerMap, now, timeZone) {
