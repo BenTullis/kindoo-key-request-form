@@ -344,21 +344,44 @@ function shouldSendManagerAlert_(rowValues, headerMap, now, timeZone) {
 function sendStakeManagerAlert_(details) {
   var timeZone = Session.getScriptTimeZone();
   var subject = 'Kindoo Access Needs Assignment: ' + details.building + ' - ' + details.requesterName;
+  var formattedStart = Utilities.formatDate(details.startDate, timeZone, 'M/d/yyyy h:mm a');
+  var formattedEnd = Utilities.formatDate(details.endDate, timeZone, 'M/d/yyyy h:mm a');
+  var claimLine = details.claimUrl || 'Publish the web app and set WEB_APP_URL to enable claims.';
   var body = 'Stake Managers,\n\n' +
              'A Kindoo access request is within the next 7 days and needs to be claimed.\n\n' +
-             'Claim this request: ' + (details.claimUrl || 'Publish the web app and set WEB_APP_URL to enable claims.') + '\n\n' +
+             'Claim this request: ' + claimLine + '\n\n' +
              'Request ID: ' + details.requestId + '\n' +
              'Requester: ' + details.requesterName + '\n' +
              'Requester Email: ' + details.requesterEmail + '\n' +
              'Requester Phone: ' + details.requesterPhone + '\n' +
              'Building: ' + details.building + '\n' +
              'Ward: ' + details.ward + '\n' +
-             'Access Start: ' + Utilities.formatDate(details.startDate, timeZone, 'M/d/yyyy h:mm a') + '\n' +
-             'Access End: ' + Utilities.formatDate(details.endDate, timeZone, 'M/d/yyyy h:mm a') + '\n' +
+             'Access Start: ' + formattedStart + '\n' +
+             'Access End: ' + formattedEnd + '\n' +
              'Ledger Row: ' + details.row + '\n\n' +
              'This request will continue to alert daily until it is claimed.';
+  var htmlBody = '<p>Stake Managers,</p>' +
+                 '<p>A Kindoo access request is within the next 7 days and needs to be claimed.</p>' +
+                 (details.claimUrl
+                   ? '<p><a href="' + details.claimUrl + '" style="display:inline-block;padding:10px 16px;background:#1a73e8;color:#ffffff;text-decoration:none;border-radius:4px;">Claim this request</a></p>'
+                   : '<p><strong>Claim link unavailable.</strong> Publish the web app and set <code>WEB_APP_URL</code> to enable claims.</p>') +
+                 '<p><strong>Request ID:</strong> ' + details.requestId + '<br>' +
+                 '<strong>Requester:</strong> ' + details.requesterName + '<br>' +
+                 '<strong>Requester Email:</strong> ' + details.requesterEmail + '<br>' +
+                 '<strong>Requester Phone:</strong> ' + details.requesterPhone + '<br>' +
+                 '<strong>Building:</strong> ' + details.building + '<br>' +
+                 '<strong>Ward:</strong> ' + details.ward + '<br>' +
+                 '<strong>Access Start:</strong> ' + formattedStart + '<br>' +
+                 '<strong>Access End:</strong> ' + formattedEnd + '<br>' +
+                 '<strong>Ledger Row:</strong> ' + details.row + '</p>' +
+                 '<p>This request will continue to alert daily until it is claimed.</p>';
 
-  MailApp.sendEmail(getStakeManagerEmails_().join(','), subject, body);
+  MailApp.sendEmail({
+    to: getStakeManagerEmails_().join(','),
+    subject: subject,
+    body: body,
+    htmlBody: htmlBody
+  });
 }
 
 function buildClaimResponseHtml_(title, body) {
@@ -398,6 +421,7 @@ function claimRequest_(requestId, token) {
   var sheet = getLedgerSheet_();
   var requestIdColumn = getOrCreateRequestIdColumn_(sheet);
   var claimStatusColumn = getOrCreateColumnByHeader_(sheet, 'Manager Claim Status');
+  var alertStatusColumn = getOrCreateColumnByHeader_(sheet, 'Manager Alert Status');
   var claimedByColumn = getOrCreateColumnByHeader_(sheet, 'Claimed By');
   var claimedAtColumn = getOrCreateColumnByHeader_(sheet, 'Claimed At');
   var row = findRowByRequestId_(sheet, requestId, requestIdColumn);
@@ -429,6 +453,7 @@ function claimRequest_(requestId, token) {
   var now = new Date();
 
   sheet.getRange(row, claimStatusColumn).setValue('Claimed');
+  sheet.getRange(row, alertStatusColumn).setValue('Claimed');
   sheet.getRange(row, claimedByColumn).setValue(claimedBy);
   sheet.getRange(row, claimedAtColumn).setValue(now);
 
