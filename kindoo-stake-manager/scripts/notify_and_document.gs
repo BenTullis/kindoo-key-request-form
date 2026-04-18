@@ -559,6 +559,7 @@ function sendKeyIssuancePromptEmail_(claimerEmail, requestId, details) {
   var subject = 'Kindoo Key Assignment Needed: ' + requestId;
   var body = 'You claimed request ' + requestId + '.\n\n' +
              'Next step: schedule the Kindoo access key for this request.\n\n' +
+             'Only click the issued button after you have actually scheduled the Kindoo access key.\n\n' +
              'Requester: ' + details.requesterName + '\n' +
              'Building: ' + details.building + '\n' +
              'Ward: ' + details.ward + '\n' +
@@ -567,6 +568,7 @@ function sendKeyIssuancePromptEmail_(claimerEmail, requestId, details) {
              'After you issue the Kindoo key, click this link:\n' + issueUrl;
   var htmlBody = '<p>You claimed request <strong>' + requestId + '</strong>.</p>' +
                  '<p><strong>Next step:</strong> schedule the Kindoo access key for this request.</p>' +
+                 '<p><strong>Only click the button below after you have actually scheduled the Kindoo access key.</strong></p>' +
                  '<p><strong>Requester:</strong> ' + details.requesterName + '<br>' +
                  '<strong>Building:</strong> ' + details.building + '<br>' +
                  '<strong>Ward:</strong> ' + details.ward + '<br>' +
