@@ -27,6 +27,8 @@ This project supports a scheduler-led process for LDS stake building access:
 
 The Apps Script project expects these Script Properties:
 
+- `LEDGER_SPREADSHEET_ID`
+  - `1LvGWUqpqwAzyTkMfLphH_5mO2hzPgjzwt64C5X-bknE`
 - `WARD_1_EMAIL`
 - `WARD_2_EMAIL`
 - `WARD_4_EMAIL`

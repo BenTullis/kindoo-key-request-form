@@ -93,8 +93,23 @@ function getRequesterEmail_(e, responses) {
   return String(requesterEmail).trim();
 }
 
+function getLedgerSpreadsheet_() {
+  var spreadsheetId = PropertiesService.getScriptProperties().getProperty('LEDGER_SPREADSHEET_ID');
+
+  if (spreadsheetId) {
+    return SpreadsheetApp.openById(spreadsheetId);
+  }
+
+  var activeSpreadsheet = SpreadsheetApp.getActiveSpreadsheet();
+  if (activeSpreadsheet) {
+    return activeSpreadsheet;
+  }
+
+  throw new Error('Missing ledger spreadsheet. Set Script Property LEDGER_SPREADSHEET_ID.');
+}
+
 function getLedgerSheet_() {
-  var spreadsheet = SpreadsheetApp.getActiveSpreadsheet();
+  var spreadsheet = getLedgerSpreadsheet_();
   var sheetName = PropertiesService.getScriptProperties().getProperty('LEDGER_SHEET_NAME');
 
   if (sheetName) {
@@ -106,6 +121,47 @@ function getLedgerSheet_() {
   }
 
   return spreadsheet.getSheets()[0];
+}
+
+function deleteTriggersByHandler_(handlerName) {
+  var triggers = ScriptApp.getProjectTriggers();
+
+  for (var i = 0; i < triggers.length; i++) {
+    if (triggers[i].getHandlerFunction() === handlerName) {
+      ScriptApp.deleteTrigger(triggers[i]);
+    }
+  }
+}
+
+function createKindooSpreadsheetTrigger() {
+  var spreadsheet = getLedgerSpreadsheet_();
+
+  deleteTriggersByHandler_('onFormSubmitTrigger');
+
+  ScriptApp.newTrigger('onFormSubmitTrigger')
+    .forSpreadsheet(spreadsheet)
+    .onFormSubmit()
+    .create();
+
+  Logger.log('Created spreadsheet form-submit trigger for spreadsheet: ' + spreadsheet.getId());
+}
+
+function createKindooDailyScanTrigger() {
+  deleteTriggersByHandler_('runUpcomingAccessScan');
+
+  ScriptApp.newTrigger('runUpcomingAccessScan')
+    .timeBased()
+    .everyDays(1)
+    .atHour(8)
+    .create();
+
+  Logger.log('Created daily time-driven trigger for runUpcomingAccessScan().');
+}
+
+function createKindooTriggers() {
+  createKindooSpreadsheetTrigger();
+  createKindooDailyScanTrigger();
+  Logger.log('Created Kindoo triggers successfully.');
 }
 
 function getHeaderMap_(sheet) {
