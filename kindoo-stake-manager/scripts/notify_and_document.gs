@@ -399,6 +399,8 @@ function cleanupDuplicateRequestIdColumns() {
 function shouldSendManagerAlert_(rowValues, headerMap, now, timeZone) {
   var status = getCellString_(rowValues, headerMap, 'Status');
   var claimStatus = getCellString_(rowValues, headerMap, 'Manager Claim Status');
+  var claimedBy = getCellString_(rowValues, headerMap, 'Claimed By');
+  var keyStatus = getCellString_(rowValues, headerMap, 'Kindoo Key Status');
   var lastAlertSentAt = parseSheetDate_(getCellValue_(rowValues, headerMap, 'Manager Alert Last Sent At'));
   var startDate = parseSheetDate_(getCellValue_(rowValues, headerMap, 'Access Start (Date & Time)'));
 
@@ -406,7 +408,7 @@ function shouldSendManagerAlert_(rowValues, headerMap, now, timeZone) {
     return false;
   }
 
-  if (claimStatus.toLowerCase() === 'claimed') {
+  if (keyStatus.toLowerCase() === 'issued') {
     return false;
   }
 
@@ -427,6 +429,10 @@ function shouldSendManagerAlert_(rowValues, headerMap, now, timeZone) {
     return false;
   }
 
+  if (claimStatus.toLowerCase() === 'claimed' && !claimedBy) {
+    return false;
+  }
+
   return true;
 }
 
@@ -440,8 +446,9 @@ function sendStakeManagerAlert_(details) {
     var managerEmail = managerEmails[i];
     var claimUrl = buildClaimUrl_(details.requestId, managerEmail);
     var subject = 'Kindoo Access Needs Assignment: ' + details.building + ' - ' + details.requesterName;
-    var body = 'Stake Managers,\n\n' +
+    var body = 'Stake Kindoo Managers,\n\n' +
                'A Kindoo access request is within the next 7 days and needs to be claimed.\n\n' +
+               'Once you claim it, the other Stake Kindoo Managers will be notified that you have taken ownership. At that point, it becomes your responsibility to schedule the Kindoo access request. You will continue to receive a daily reminder until the key is actually scheduled.\n\n' +
                'Claim this request: ' + (claimUrl || 'Publish the web app and set WEB_APP_URL to enable claims.') + '\n\n' +
                'Request ID: ' + details.requestId + '\n' +
                'Requester: ' + details.requesterName + '\n' +
@@ -453,8 +460,9 @@ function sendStakeManagerAlert_(details) {
                'Access End: ' + formattedEnd + '\n' +
                'Ledger Row: ' + details.row + '\n\n' +
                'This request will continue to alert daily until it is claimed.';
-    var htmlBody = '<p>Stake Managers,</p>' +
+    var htmlBody = '<p>Stake Kindoo Managers,</p>' +
                    '<p>A Kindoo access request is within the next 7 days and needs to be claimed.</p>' +
+                   '<p>Once you claim it, the other Stake Kindoo Managers will be notified that you have taken ownership. At that point, it becomes your responsibility to schedule the Kindoo access request. You will continue to receive a daily reminder until the key is actually scheduled.</p>' +
                    (claimUrl
                      ? '<p><a href="' + claimUrl + '" style="display:inline-block;padding:10px 16px;background:#1a73e8;color:#ffffff;text-decoration:none;border-radius:4px;">Claim this request</a></p>'
                      : '<p><strong>Claim link unavailable.</strong> Publish the web app and set <code>WEB_APP_URL</code> to enable claims.</p>') +
@@ -476,6 +484,43 @@ function sendStakeManagerAlert_(details) {
       htmlBody: htmlBody
     });
   }
+}
+
+function sendClaimedManagerReminder_(claimerEmail, details) {
+  if (!claimerEmail || claimerEmail.indexOf('@') === -1) {
+    return;
+  }
+
+  var timeZone = Session.getScriptTimeZone();
+  var formattedStart = Utilities.formatDate(details.startDate, timeZone, 'M/d/yyyy h:mm a');
+  var formattedEnd = Utilities.formatDate(details.endDate, timeZone, 'M/d/yyyy h:mm a');
+  var issueUrl = buildIssuedUrl_(details.requestId, claimerEmail);
+  var subject = 'Reminder: Schedule Kindoo Key for ' + details.requestId;
+  var body = 'This is a reminder that you claimed request ' + details.requestId + ' and still need to schedule the Kindoo access key.\n\n' +
+             'Requester: ' + details.requesterName + '\n' +
+             'Requester Email: ' + details.requesterEmail + '\n' +
+             'Requester Phone: ' + details.requesterPhone + '\n' +
+             'Building: ' + details.building + '\n' +
+             'Ward: ' + details.ward + '\n' +
+             'Access Start: ' + formattedStart + '\n' +
+             'Access End: ' + formattedEnd + '\n\n' +
+             'When the Kindoo key has been issued, click:\n' + issueUrl;
+  var htmlBody = '<p>This is a reminder that you claimed request <strong>' + details.requestId + '</strong> and still need to schedule the Kindoo access key.</p>' +
+                 '<p><strong>Requester:</strong> ' + details.requesterName + '<br>' +
+                 '<strong>Requester Email:</strong> ' + details.requesterEmail + '<br>' +
+                 '<strong>Requester Phone:</strong> ' + details.requesterPhone + '<br>' +
+                 '<strong>Building:</strong> ' + details.building + '<br>' +
+                 '<strong>Ward:</strong> ' + details.ward + '<br>' +
+                 '<strong>Access Start:</strong> ' + formattedStart + '<br>' +
+                 '<strong>Access End:</strong> ' + formattedEnd + '</p>' +
+                 '<p><a href="' + issueUrl + '" style="display:inline-block;padding:10px 16px;background:#188038;color:#ffffff;text-decoration:none;border-radius:4px;">Kindoo Key Issued</a></p>';
+
+  MailApp.sendEmail({
+    to: claimerEmail,
+    subject: subject,
+    body: body,
+    htmlBody: htmlBody
+  });
 }
 
 function buildClaimResponseHtml_(title, body, accentColor) {
@@ -564,6 +609,33 @@ function sendIssuedNotificationToOtherManagers_(issuerEmail, requestId, details)
 
   MailApp.sendEmail({
     to: recipients.join(','),
+    subject: subject,
+    body: body,
+    htmlBody: htmlBody
+  });
+}
+
+function sendFinalSuccessEmailToMember_(requestId, details) {
+  if (!details.requesterEmail || details.requesterEmail.indexOf('@') === -1) {
+    return;
+  }
+
+  var timeZone = Session.getScriptTimeZone();
+  var subject = 'Kindoo Access Confirmed: ' + details.building;
+  var body = 'Hello ' + details.requesterName + ',\n\n' +
+             'Your Kindoo key access request for the ' + details.building + ' has been completed.\n\n' +
+             'Scheduled Time: ' + Utilities.formatDate(details.startDate, timeZone, 'M/d/yyyy h:mm a') + ' to ' +
+             Utilities.formatDate(details.endDate, timeZone, 'M/d/yyyy h:mm a') + '\n\n' +
+             'Your Kindoo digital key has now been issued.';
+  var htmlBody = '<p>Hello ' + details.requesterName + ',</p>' +
+                 '<p>Your Kindoo key access request for the <strong>' + details.building + '</strong> has been completed.</p>' +
+                 '<p><strong>Scheduled Time:</strong> ' +
+                 Utilities.formatDate(details.startDate, timeZone, 'M/d/yyyy h:mm a') + ' to ' +
+                 Utilities.formatDate(details.endDate, timeZone, 'M/d/yyyy h:mm a') + '</p>' +
+                 '<p>Your Kindoo digital key has now been issued.</p>';
+
+  MailApp.sendEmail({
+    to: details.requesterEmail,
     subject: subject,
     body: body,
     htmlBody: htmlBody
@@ -720,10 +792,11 @@ function markRequestIssued_(requestId, actorEmail, token) {
   sheet.getRange(row, issuedAtColumn).setValue(now);
 
   sendIssuedNotificationToOtherManagers_(issuerEmail, requestId, details);
+  sendFinalSuccessEmailToMember_(requestId, details);
 
   return buildClaimResponseHtml_(
     'Kindoo Key Issued',
-    'Request ' + requestId + ' has been marked as issued. The other managers have been notified.',
+    'Request ' + requestId + ' has been marked as issued. The member and the other managers have been notified.',
     '#188038'
   );
 }
@@ -770,6 +843,8 @@ function runUpcomingAccessScan() {
     }
 
     var requestId = ensureRequestIdForRow_(sheet, rowNumber);
+    var claimStatus = getCellString_(rowValues, headerMap, 'Manager Claim Status');
+    var claimedBy = getCellString_(rowValues, headerMap, 'Claimed By');
     var details = {
       row: rowNumber,
       requestId: requestId,
@@ -782,13 +857,19 @@ function runUpcomingAccessScan() {
       endDate: parseSheetDate_(getCellValue_(rowValues, headerMap, 'Access End (Date & Time)'))
     };
 
-    sendStakeManagerAlert_(details);
+    if (claimStatus.toLowerCase() === 'claimed' && claimedBy) {
+      sendClaimedManagerReminder_(claimedBy, details);
+    } else {
+      sendStakeManagerAlert_(details);
+    }
 
     var existingAlertCount = parseInt(sheet.getRange(rowNumber, alertCountColumn).getValue(), 10);
     sheet.getRange(rowNumber, claimStatusColumn).setValue(
       String(sheet.getRange(rowNumber, claimStatusColumn).getValue() || '').trim() || 'Unclaimed'
     );
-    sheet.getRange(rowNumber, alertStatusColumn).setValue('Alerted');
+    sheet.getRange(rowNumber, alertStatusColumn).setValue(
+      claimStatus.toLowerCase() === 'claimed' && claimedBy ? 'Claimed Reminder Sent' : 'Alerted'
+    );
     sheet.getRange(rowNumber, alertLastSentColumn).setValue(now);
     sheet.getRange(rowNumber, alertCountColumn).setValue(isNaN(existingAlertCount) ? 1 : existingAlertCount + 1);
     sheet.getRange(rowNumber, statusColumn).setValue(
