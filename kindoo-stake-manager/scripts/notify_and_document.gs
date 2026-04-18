@@ -1,8 +1,10 @@
 /**
- * Kindoo Step 3: Automated Notifications
- * This script should be pasted into the Apps Script editor of the GOOGLE SHEET.
+ * Kindoo notification, ledger, trigger, and web-app workflow.
+ * This script is intended to run from the spreadsheet-bound Apps Script project.
  */
 
+// Reads a required Script Property and fails fast with a clear message when it
+// has not been configured in the live Apps Script project.
 function getSecret_(key) {
   var value = PropertiesService.getScriptProperties().getProperty(key);
   if (!value) {
@@ -11,6 +13,8 @@ function getSecret_(key) {
   return value;
 }
 
+// Returns the ward-to-bishop mapping from Script Properties so bishop emails
+// stay out of source control.
 function getBishopEmails_() {
   return {
     '1st Ward': getSecret_('WARD_1_EMAIL'),
@@ -21,6 +25,7 @@ function getBishopEmails_() {
   };
 }
 
+// Parses the comma-separated stake manager email list from Script Properties.
 function getStakeManagerEmails_() {
   var raw = getSecret_('STAKE_MANAGER_EMAILS');
   return raw.split(',').map(function(email) {
@@ -30,14 +35,18 @@ function getStakeManagerEmails_() {
   });
 }
 
+// Returns the secret used to sign claim links.
 function getClaimLinkSecret_() {
   return getSecret_('CLAIM_LINK_SECRET');
 }
 
+// Returns the secret used to sign issued links.
 function getIssuedLinkSecret_() {
   return getSecret_('ISSUED_LINK_SECRET');
 }
 
+// Normalizes a namedValues entry from the form submit event into one trimmed
+// string, or returns an empty string when the event value is missing.
 function getSingleResponseValue_(responses, key) {
   var value = responses[key];
   if (Array.isArray(value) && value.length > 0) {
@@ -49,6 +58,8 @@ function getSingleResponseValue_(responses, key) {
   return '';
 }
 
+// Reads a response value directly from the submitted sheet row when namedValues
+// are incomplete, such as after an edited submission.
 function getValueFromEventRow_(e, headerName) {
   var sheet = e.range.getSheet();
   var headers = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0];
@@ -61,6 +72,8 @@ function getValueFromEventRow_(e, headerName) {
   return rowValues[headerIndex];
 }
 
+// Resolves one submission field by trying the form event first and then the
+// actual spreadsheet row as a fallback.
 function getSubmissionValue_(e, responses, possibleHeaders) {
   for (var i = 0; i < possibleHeaders.length; i++) {
     var fromNamedValues = getSingleResponseValue_(responses, possibleHeaders[i]);
@@ -79,6 +92,8 @@ function getSubmissionValue_(e, responses, possibleHeaders) {
   return '';
 }
 
+// Resolves the requester email from the submission and throws a clear error if
+// the response does not contain one.
 function getRequesterEmail_(e, responses) {
   var requesterEmail = getSubmissionValue_(e, responses, [
     'Requester Email',
@@ -93,6 +108,8 @@ function getRequesterEmail_(e, responses) {
   return String(requesterEmail).trim();
 }
 
+// Opens the ledger spreadsheet using an explicit Script Property when present,
+// or falls back to the active spreadsheet in bound-script scenarios.
 function getLedgerSpreadsheet_() {
   var spreadsheetId = PropertiesService.getScriptProperties().getProperty('LEDGER_SPREADSHEET_ID');
 
@@ -108,6 +125,8 @@ function getLedgerSpreadsheet_() {
   throw new Error('Missing ledger spreadsheet. Set Script Property LEDGER_SPREADSHEET_ID.');
 }
 
+// Returns the active ledger tab by name when configured, otherwise the first
+// sheet in the ledger spreadsheet.
 function getLedgerSheet_() {
   var spreadsheet = getLedgerSpreadsheet_();
   var sheetName = PropertiesService.getScriptProperties().getProperty('LEDGER_SHEET_NAME');
@@ -123,6 +142,8 @@ function getLedgerSheet_() {
   return spreadsheet.getSheets()[0];
 }
 
+// Removes existing installable triggers for one handler so trigger setup can be
+// safely re-run without creating duplicates.
 function deleteTriggersByHandler_(handlerName) {
   var triggers = ScriptApp.getProjectTriggers();
 
@@ -133,6 +154,8 @@ function deleteTriggersByHandler_(handlerName) {
   }
 }
 
+// Creates the spreadsheet form-submit trigger that drives submit-time emails
+// and ledger updates.
 function createKindooSpreadsheetTrigger() {
   var spreadsheet = getLedgerSpreadsheet_();
 
@@ -146,6 +169,8 @@ function createKindooSpreadsheetTrigger() {
   Logger.log('Created spreadsheet form-submit trigger for spreadsheet: ' + spreadsheet.getId());
 }
 
+// Creates the once-daily trigger that scans upcoming requests for manager
+// action.
 function createKindooDailyScanTrigger() {
   deleteTriggersByHandler_('runUpcomingAccessScan');
 
@@ -158,12 +183,15 @@ function createKindooDailyScanTrigger() {
   Logger.log('Created daily time-driven trigger for runUpcomingAccessScan().');
 }
 
+// Convenience entrypoint that recreates both required installable triggers.
 function createKindooTriggers() {
   createKindooSpreadsheetTrigger();
   createKindooDailyScanTrigger();
   Logger.log('Created Kindoo triggers successfully.');
 }
 
+// Builds a leftmost-wins header map so duplicate helper columns do not confuse
+// later lookups.
 function getHeaderMap_(sheet) {
   var headers = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0];
   var headerMap = {};
@@ -177,6 +205,7 @@ function getHeaderMap_(sheet) {
   return headerMap;
 }
 
+// Returns every column index whose header matches the requested name.
 function getColumnsByHeader_(sheet, headerName) {
   var headers = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0];
   var matches = [];
@@ -190,6 +219,8 @@ function getColumnsByHeader_(sheet, headerName) {
   return matches;
 }
 
+// Reuses the first matching helper column or creates it if the header does not
+// exist yet.
 function getOrCreateColumnByHeader_(sheet, headerName) {
   var matchingColumns = getColumnsByHeader_(sheet, headerName);
   if (matchingColumns.length > 0) {
@@ -201,14 +232,17 @@ function getOrCreateColumnByHeader_(sheet, headerName) {
   return newColumn;
 }
 
+// Returns the canonical status column.
 function getOrCreateStatusColumn_(sheet) {
   return getOrCreateColumnByHeader_(sheet, 'Status');
 }
 
+// Returns the canonical request ID column.
 function getOrCreateRequestIdColumn_(sheet) {
   return getOrCreateColumnByHeader_(sheet, 'Request ID');
 }
 
+// Reads one cell as a trimmed string using the header map.
 function getCellString_(rowValues, headerMap, headerName) {
   var column = headerMap[headerName];
   if (!column) {
@@ -219,6 +253,7 @@ function getCellString_(rowValues, headerMap, headerName) {
   return value == null ? '' : String(value).trim();
 }
 
+// Reads one raw cell value using the header map.
 function getCellValue_(rowValues, headerMap, headerName) {
   var column = headerMap[headerName];
   if (!column) {
@@ -228,6 +263,7 @@ function getCellValue_(rowValues, headerMap, headerName) {
   return rowValues[column - 1];
 }
 
+// Safely parses sheet values into a Date or returns null when parsing fails.
 function parseSheetDate_(value) {
   if (!value) {
     return null;
@@ -244,10 +280,12 @@ function parseSheetDate_(value) {
   return parsed;
 }
 
+// Compares two dates by local date only in the script timezone.
 function isSameLocalDate_(left, right, timeZone) {
   return Utilities.formatDate(left, timeZone, 'yyyy-MM-dd') === Utilities.formatDate(right, timeZone, 'yyyy-MM-dd');
 }
 
+// Converts the HMAC byte array into a lowercase hex string for URLs.
 function toHexString_(bytes) {
   return bytes.map(function(byteValue) {
     var normalized = byteValue < 0 ? byteValue + 256 : byteValue;
@@ -256,10 +294,12 @@ function toHexString_(bytes) {
   }).join('');
 }
 
+// Normalizes email addresses for token generation and equality checks.
 function normalizeEmail_(email) {
   return String(email || '').trim().toLowerCase();
 }
 
+// Builds a signed token for a specific action, request, and actor email.
 function buildSignedToken_(action, requestId, actorEmail, secret) {
   var signature = Utilities.computeHmacSha256Signature(
     action + ':' + requestId + ':' + normalizeEmail_(actorEmail),
@@ -268,14 +308,18 @@ function buildSignedToken_(action, requestId, actorEmail, secret) {
   return toHexString_(signature);
 }
 
+// Creates the signed token used by claim links.
 function buildClaimToken_(requestId, actorEmail) {
   return buildSignedToken_('claim', requestId, actorEmail, getClaimLinkSecret_());
 }
 
+// Creates the signed token used by issued links.
 function buildIssuedToken_(requestId, actorEmail) {
   return buildSignedToken_('issued', requestId, actorEmail, getIssuedLinkSecret_());
 }
 
+// Returns the deployed web-app URL from Script Properties, with Apps Script's
+// service URL as a fallback.
 function getClaimWebAppUrl_() {
   var configuredUrl = PropertiesService.getScriptProperties().getProperty('WEB_APP_URL');
   if (configuredUrl) {
@@ -286,6 +330,7 @@ function getClaimWebAppUrl_() {
   return deployedUrl || '';
 }
 
+// Builds the personalized claim URL for one manager email.
 function buildClaimUrl_(requestId, actorEmail) {
   var baseUrl = getClaimWebAppUrl_();
   if (!baseUrl) {
@@ -299,6 +344,7 @@ function buildClaimUrl_(requestId, actorEmail) {
     '&token=' + encodeURIComponent(buildClaimToken_(requestId, actorEmail));
 }
 
+// Builds the personalized issued URL for the claiming manager.
 function buildIssuedUrl_(requestId, actorEmail) {
   var baseUrl = getClaimWebAppUrl_();
   if (!baseUrl) {
@@ -312,6 +358,7 @@ function buildIssuedUrl_(requestId, actorEmail) {
     '&token=' + encodeURIComponent(buildIssuedToken_(requestId, actorEmail));
 }
 
+// Finds the next numeric request sequence by scanning existing request IDs.
 function findNextRequestSequence_(sheet, requestIdColumn) {
   var lastRow = sheet.getLastRow();
   if (lastRow < 2) {
@@ -336,6 +383,7 @@ function findNextRequestSequence_(sheet, requestIdColumn) {
   return maxNumber + 1;
 }
 
+// Ensures the given ledger row has a stable request ID and returns it.
 function ensureRequestIdForRow_(sheet, row) {
   var requestIdColumn = getOrCreateRequestIdColumn_(sheet);
   var existingRequestId = String(sheet.getRange(row, requestIdColumn).getValue() || '').trim();
@@ -349,6 +397,8 @@ function ensureRequestIdForRow_(sheet, row) {
   return requestId;
 }
 
+// One-time maintenance helper that merges duplicate Request ID columns into the
+// leftmost canonical column and removes the extras.
 function cleanupDuplicateRequestIdColumns() {
   var sheet = getLedgerSheet_();
   var requestIdColumns = getColumnsByHeader_(sheet, 'Request ID');
@@ -396,6 +446,8 @@ function cleanupDuplicateRequestIdColumns() {
   );
 }
 
+// Determines whether a row should trigger an alert or reminder during the
+// current scan run.
 function shouldSendManagerAlert_(rowValues, headerMap, now, timeZone) {
   var status = getCellString_(rowValues, headerMap, 'Status');
   var claimStatus = getCellString_(rowValues, headerMap, 'Manager Claim Status');
@@ -436,6 +488,7 @@ function shouldSendManagerAlert_(rowValues, headerMap, now, timeZone) {
   return true;
 }
 
+// Sends the initial daily assignment alert to every configured stake manager.
 function sendStakeManagerAlert_(details) {
   var timeZone = Session.getScriptTimeZone();
   var formattedStart = Utilities.formatDate(details.startDate, timeZone, 'M/d/yyyy h:mm a');
@@ -486,6 +539,8 @@ function sendStakeManagerAlert_(details) {
   }
 }
 
+// Sends the once-per-day reminder to the claiming manager until the key is
+// actually issued.
 function sendClaimedManagerReminder_(claimerEmail, details) {
   if (!claimerEmail || claimerEmail.indexOf('@') === -1) {
     return;
@@ -504,6 +559,7 @@ function sendClaimedManagerReminder_(claimerEmail, details) {
              'Ward: ' + details.ward + '\n' +
              'Access Start: ' + formattedStart + '\n' +
              'Access End: ' + formattedEnd + '\n\n' +
+             'Only click the issued button after you have actually scheduled the Kindoo access key.\n\n' +
              'When the Kindoo key has been issued, click:\n' + issueUrl;
   var htmlBody = '<p>This is a reminder that you claimed request <strong>' + details.requestId + '</strong> and still need to schedule the Kindoo access key.</p>' +
                  '<p><strong>Requester:</strong> ' + details.requesterName + '<br>' +
@@ -513,6 +569,7 @@ function sendClaimedManagerReminder_(claimerEmail, details) {
                  '<strong>Ward:</strong> ' + details.ward + '<br>' +
                  '<strong>Access Start:</strong> ' + formattedStart + '<br>' +
                  '<strong>Access End:</strong> ' + formattedEnd + '</p>' +
+                 '<p><strong>Only click the button below after you have actually scheduled the Kindoo access key.</strong></p>' +
                  '<p><a href="' + issueUrl + '" style="display:inline-block;padding:10px 16px;background:#188038;color:#ffffff;text-decoration:none;border-radius:4px;">Kindoo Key Issued</a></p>';
 
   MailApp.sendEmail({
@@ -523,6 +580,7 @@ function sendClaimedManagerReminder_(claimerEmail, details) {
   });
 }
 
+// Builds a simple branded HTML response for claim and issued web-app actions.
 function buildClaimResponseHtml_(title, body, accentColor) {
   var color = accentColor || '#1a73e8';
   var html = '<html><body style="font-family:Arial,sans-serif;padding:24px;line-height:1.5;">' +
@@ -534,6 +592,8 @@ function buildClaimResponseHtml_(title, body, accentColor) {
   return HtmlService.createHtmlOutput(html).setTitle(title);
 }
 
+// Reads the requester-facing details used in manager emails and final success
+// notifications for one ledger row.
 function getRequesterDetailsForRow_(sheet, row) {
   var headerMap = getHeaderMap_(sheet);
   var rowValues = sheet.getRange(row, 1, 1, sheet.getLastColumn()).getValues()[0];
@@ -549,6 +609,8 @@ function getRequesterDetailsForRow_(sheet, row) {
   };
 }
 
+// Sends the immediate follow-up email to the claiming manager with the issued
+// button.
 function sendKeyIssuancePromptEmail_(claimerEmail, requestId, details) {
   if (!claimerEmail || claimerEmail.indexOf('@') === -1) {
     return;
@@ -584,6 +646,8 @@ function sendKeyIssuancePromptEmail_(claimerEmail, requestId, details) {
   });
 }
 
+// Notifies the non-claiming managers that the key has been issued and no
+// further action is needed from them.
 function sendIssuedNotificationToOtherManagers_(issuerEmail, requestId, details) {
   var recipients = getStakeManagerEmails_().filter(function(email) {
     return email && email.toLowerCase() !== String(issuerEmail || '').toLowerCase();
@@ -617,6 +681,8 @@ function sendIssuedNotificationToOtherManagers_(issuerEmail, requestId, details)
   });
 }
 
+// Sends the final success email to the member once the key has actually been
+// issued.
 function sendFinalSuccessEmailToMember_(requestId, details) {
   if (!details.requesterEmail || details.requesterEmail.indexOf('@') === -1) {
     return;
@@ -644,6 +710,8 @@ function sendFinalSuccessEmailToMember_(requestId, details) {
   });
 }
 
+// Notifies the other managers once one manager has claimed the request, after
+// which only the claimer keeps receiving reminders.
 function sendClaimedNotificationToOtherManagers_(claimerEmail, requestId, details) {
   var recipients = getStakeManagerEmails_().filter(function(email) {
     return email && email.toLowerCase() !== String(claimerEmail || '').toLowerCase();
@@ -677,6 +745,7 @@ function sendClaimedNotificationToOtherManagers_(claimerEmail, requestId, detail
   });
 }
 
+// Finds a ledger row by its stable request ID.
 function findRowByRequestId_(sheet, requestId, requestIdColumn) {
   var lastRow = sheet.getLastRow();
   if (lastRow < 2) {
@@ -693,6 +762,8 @@ function findRowByRequestId_(sheet, requestId, requestIdColumn) {
   return -1;
 }
 
+// Handles the manager claim web-app action, records ownership in the ledger,
+// and fans out the next notification emails.
 function claimRequest_(requestId, actorEmail, token) {
   if (!requestId || !actorEmail || !token) {
     return buildClaimResponseHtml_('Claim Failed', 'The claim link is missing required information.', '#d93025');
@@ -750,6 +821,8 @@ function claimRequest_(requestId, actorEmail, token) {
   );
 }
 
+// Handles the issued web-app action, marks the ledger issued, and sends final
+// notifications.
 function markRequestIssued_(requestId, actorEmail, token) {
   if (!requestId || !actorEmail || !token) {
     return buildClaimResponseHtml_('Issue Update Failed', 'The issued link is missing required information.', '#d93025');
@@ -803,6 +876,7 @@ function markRequestIssued_(requestId, actorEmail, token) {
   );
 }
 
+// Web-app entrypoint for claim and issued actions.
 function doGet(e) {
   var action = e && e.parameter ? e.parameter.action : '';
 
@@ -817,6 +891,8 @@ function doGet(e) {
   return buildClaimResponseHtml_('Kindoo Claim App', 'This web app is running. Use a claim link from a manager alert email.');
 }
 
+// Daily scanner that routes unclaimed requests to all managers and claimed
+// requests to the claiming manager only until issuance.
 function runUpcomingAccessScan() {
   var sheet = getLedgerSheet_();
   var statusColumn = getOrCreateStatusColumn_(sheet);
@@ -880,6 +956,8 @@ function runUpcomingAccessScan() {
   }
 }
 
+// Spreadsheet form-submit trigger that sends the bishop FYI and requester
+// confirmation emails, assigns request IDs, and records the submission status.
 function onFormSubmitTrigger(e) {
   // 1. Get the data from the form submission
   var responses = e.namedValues;
@@ -947,4 +1025,28 @@ function onFormSubmitTrigger(e) {
   sheet.getRange(row, statusColumn).setValue(
     isUpdatedSubmission ? "Updated and Scheduled" : "Vetted and Scheduled"
   );
+}
+
+// One-time helper for a fresh Apps Script project. Edit the placeholders,
+// then run this to seed the required Script Properties after an ownership
+// transfer or new deployment.
+function seedKindooScriptProperties() {
+  var properties = PropertiesService.getScriptProperties();
+
+  properties.setProperties({
+    LEDGER_SPREADSHEET_ID: '1LvGWUqpqwAzyTkMfLphH_5mO2hzPgjzwt64C5X-bknE',
+    LEDGER_SHEET_NAME: 'Form_Responses3',
+    WARD_1_EMAIL: 'benjamintullis+1st@gmail.com',
+    WARD_2_EMAIL: 'benjamintullis+2nd@gmail.com',
+    WARD_4_EMAIL: 'benjamintullis+4th@gmail.com',
+    WARD_5_EMAIL: 'benjamintullis+5th@gmail.com',
+    WARD_7_EMAIL: 'benjamintullis+7th@gmail.com',
+    STAKE_TECHNOLOGY_SPECIALIST_EMAIL: 'benjamintullis+tech_spec@gmail.com',
+    STAKE_MANAGER_EMAILS: 'benjamintullis+mgr1@gmail.com,benjamintullis+mgr2@gmail.com',
+    CLAIM_LINK_SECRET: 'kindoo-claim-2026-7f9a2c1d-4b81-4d5f-a93e-2a7d1b6c8e11',
+    ISSUED_LINK_SECRET: 'kindoo-issued-2026-8f4c2d91-6b5a-4f2e-9c13-7d8a1e5b3f42',
+    WEB_APP_URL: 'replace-me-web-app-url'
+  }, false);
+
+  Logger.log('Kindoo Script Properties seeded. Update placeholder values before production use.');
 }

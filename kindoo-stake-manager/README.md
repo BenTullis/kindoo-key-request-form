@@ -9,8 +9,10 @@ This project supports a scheduler-led process for LDS stake building access:
 - building schedulers verify calendar availability and submit the request
 - the ledger records the request and notification state
 - bishops receive an FYI email
-- stake managers receive alerts for requests nearing their access window
-- managers claim requests and mark Kindoo key issuance through email-driven actions
+- stake kindoo managers receive alerts for requests nearing their access window
+- one manager claims the request through an email link
+- the claiming manager receives daily reminders until the key is issued
+- the member receives the final success email after issuance
 
 ## Scripts
 
@@ -22,6 +24,8 @@ This project supports a scheduler-led process for LDS stake building access:
   - assigns request IDs
   - runs the upcoming-access scan
   - powers the claim and issued web-app actions
+  - creates installable triggers
+  - includes a one-time Script Property seeding helper
 
 ## Script Properties
 
@@ -41,11 +45,53 @@ The Apps Script project expects these Script Properties:
 - `WEB_APP_URL`
 - `LEDGER_SHEET_NAME`
 
+## Setup Order
+
+For a fresh Apps Script owner or a moved Google account, use this order:
+
+1. Paste `scripts/notify_and_document.gs` and `scripts/kindoo_form_blueprint.gs` into the live Apps Script project.
+2. Update the placeholder `WEB_APP_URL` value in `seedKindooScriptProperties()`.
+3. Run `seedKindooScriptProperties()` once.
+4. Run `createKindooTriggers()` once.
+5. Deploy the script as a web app:
+   - execute as `Me`
+   - allow access for `Anyone with Google account`
+6. If the deployment URL changes, update `WEB_APP_URL` in Script Properties.
+
+## Triggered Workflow
+
+- `onFormSubmitTrigger(e)`
+  - assigns a stable `Request ID`
+  - emails the bishop
+  - emails the requester
+  - records `Vetted and Scheduled` or `Updated and Scheduled`
+- `runUpcomingAccessScan()`
+  - alerts all stake kindoo managers for unclaimed requests within the next 7 days
+  - once claimed, reminds only the claiming manager daily until issuance
+  - stops reminders after the key is issued
+- `doGet(e)`
+  - handles the claim link
+  - handles the issued link
+  - updates the ledger and sends follow-up notifications
+
 ## Workflow
 
 The workflow diagram lives in a separate source-of-truth file so it can be updated in one place:
 
 - [Building Access Workflow](./building-access-workflow.md)
+
+## Maintenance Helpers
+
+- `updateExistingKindooForm()`
+  - repairs the live form in place without recreating response-bound questions
+- `createNewKindooForm()`
+  - creates a separate new form for true replacement scenarios
+- `cleanupDuplicateRequestIdColumns()`
+  - merges duplicate `Request ID` columns into the leftmost canonical column
+- `seedKindooScriptProperties()`
+  - seeds the current Apps Script project with the expected properties
+- `createKindooTriggers()`
+  - recreates the spreadsheet submit and daily scan triggers
 
 ## Operational Notes
 
@@ -54,3 +100,4 @@ The workflow diagram lives in a separate source-of-truth file so it can be updat
 - `runUpcomingAccessScan()` should be configured as a daily time-driven trigger.
 - `onFormSubmitTrigger(e)` should be configured as the form submit trigger for the ledger spreadsheet.
 - The web app deployment must stay in sync with `WEB_APP_URL` after redeployments.
+- Old claim or issued emails should be treated as stale after a redeployment or secret change.
