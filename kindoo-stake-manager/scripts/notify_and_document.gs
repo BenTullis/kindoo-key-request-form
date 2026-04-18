@@ -256,17 +256,24 @@ function toHexString_(bytes) {
   }).join('');
 }
 
-function buildSignedToken_(action, requestId, secret) {
-  var signature = Utilities.computeHmacSha256Signature(action + ':' + requestId, secret);
+function normalizeEmail_(email) {
+  return String(email || '').trim().toLowerCase();
+}
+
+function buildSignedToken_(action, requestId, actorEmail, secret) {
+  var signature = Utilities.computeHmacSha256Signature(
+    action + ':' + requestId + ':' + normalizeEmail_(actorEmail),
+    secret
+  );
   return toHexString_(signature);
 }
 
-function buildClaimToken_(requestId) {
-  return buildSignedToken_('claim', requestId, getClaimLinkSecret_());
+function buildClaimToken_(requestId, actorEmail) {
+  return buildSignedToken_('claim', requestId, actorEmail, getClaimLinkSecret_());
 }
 
-function buildIssuedToken_(requestId) {
-  return buildSignedToken_('issued', requestId, getIssuedLinkSecret_());
+function buildIssuedToken_(requestId, actorEmail) {
+  return buildSignedToken_('issued', requestId, actorEmail, getIssuedLinkSecret_());
 }
 
 function getClaimWebAppUrl_() {
@@ -279,7 +286,7 @@ function getClaimWebAppUrl_() {
   return deployedUrl || '';
 }
 
-function buildClaimUrl_(requestId) {
+function buildClaimUrl_(requestId, actorEmail) {
   var baseUrl = getClaimWebAppUrl_();
   if (!baseUrl) {
     return '';
@@ -288,10 +295,11 @@ function buildClaimUrl_(requestId) {
   return baseUrl +
     '?action=claim' +
     '&requestId=' + encodeURIComponent(requestId) +
-    '&token=' + encodeURIComponent(buildClaimToken_(requestId));
+    '&actor=' + encodeURIComponent(normalizeEmail_(actorEmail)) +
+    '&token=' + encodeURIComponent(buildClaimToken_(requestId, actorEmail));
 }
 
-function buildIssuedUrl_(requestId) {
+function buildIssuedUrl_(requestId, actorEmail) {
   var baseUrl = getClaimWebAppUrl_();
   if (!baseUrl) {
     return '';
@@ -300,7 +308,8 @@ function buildIssuedUrl_(requestId) {
   return baseUrl +
     '?action=issued' +
     '&requestId=' + encodeURIComponent(requestId) +
-    '&token=' + encodeURIComponent(buildIssuedToken_(requestId));
+    '&actor=' + encodeURIComponent(normalizeEmail_(actorEmail)) +
+    '&token=' + encodeURIComponent(buildIssuedToken_(requestId, actorEmail));
 }
 
 function findNextRequestSequence_(sheet, requestIdColumn) {
@@ -423,45 +432,50 @@ function shouldSendManagerAlert_(rowValues, headerMap, now, timeZone) {
 
 function sendStakeManagerAlert_(details) {
   var timeZone = Session.getScriptTimeZone();
-  var subject = 'Kindoo Access Needs Assignment: ' + details.building + ' - ' + details.requesterName;
   var formattedStart = Utilities.formatDate(details.startDate, timeZone, 'M/d/yyyy h:mm a');
   var formattedEnd = Utilities.formatDate(details.endDate, timeZone, 'M/d/yyyy h:mm a');
-  var claimLine = details.claimUrl || 'Publish the web app and set WEB_APP_URL to enable claims.';
-  var body = 'Stake Managers,\n\n' +
-             'A Kindoo access request is within the next 7 days and needs to be claimed.\n\n' +
-             'Claim this request: ' + claimLine + '\n\n' +
-             'Request ID: ' + details.requestId + '\n' +
-             'Requester: ' + details.requesterName + '\n' +
-             'Requester Email: ' + details.requesterEmail + '\n' +
-             'Requester Phone: ' + details.requesterPhone + '\n' +
-             'Building: ' + details.building + '\n' +
-             'Ward: ' + details.ward + '\n' +
-             'Access Start: ' + formattedStart + '\n' +
-             'Access End: ' + formattedEnd + '\n' +
-             'Ledger Row: ' + details.row + '\n\n' +
-             'This request will continue to alert daily until it is claimed.';
-  var htmlBody = '<p>Stake Managers,</p>' +
-                 '<p>A Kindoo access request is within the next 7 days and needs to be claimed.</p>' +
-                 (details.claimUrl
-                   ? '<p><a href="' + details.claimUrl + '" style="display:inline-block;padding:10px 16px;background:#1a73e8;color:#ffffff;text-decoration:none;border-radius:4px;">Claim this request</a></p>'
-                   : '<p><strong>Claim link unavailable.</strong> Publish the web app and set <code>WEB_APP_URL</code> to enable claims.</p>') +
-                 '<p><strong>Request ID:</strong> ' + details.requestId + '<br>' +
-                 '<strong>Requester:</strong> ' + details.requesterName + '<br>' +
-                 '<strong>Requester Email:</strong> ' + details.requesterEmail + '<br>' +
-                 '<strong>Requester Phone:</strong> ' + details.requesterPhone + '<br>' +
-                 '<strong>Building:</strong> ' + details.building + '<br>' +
-                 '<strong>Ward:</strong> ' + details.ward + '<br>' +
-                 '<strong>Access Start:</strong> ' + formattedStart + '<br>' +
-                 '<strong>Access End:</strong> ' + formattedEnd + '<br>' +
-                 '<strong>Ledger Row:</strong> ' + details.row + '</p>' +
-                 '<p>This request will continue to alert daily until it is claimed.</p>';
+  var managerEmails = getStakeManagerEmails_();
 
-  MailApp.sendEmail({
-    to: getStakeManagerEmails_().join(','),
-    subject: subject,
-    body: body,
-    htmlBody: htmlBody
-  });
+  for (var i = 0; i < managerEmails.length; i++) {
+    var managerEmail = managerEmails[i];
+    var claimUrl = buildClaimUrl_(details.requestId, managerEmail);
+    var subject = 'Kindoo Access Needs Assignment: ' + details.building + ' - ' + details.requesterName;
+    var body = 'Stake Managers,\n\n' +
+               'A Kindoo access request is within the next 7 days and needs to be claimed.\n\n' +
+               'Claim this request: ' + (claimUrl || 'Publish the web app and set WEB_APP_URL to enable claims.') + '\n\n' +
+               'Request ID: ' + details.requestId + '\n' +
+               'Requester: ' + details.requesterName + '\n' +
+               'Requester Email: ' + details.requesterEmail + '\n' +
+               'Requester Phone: ' + details.requesterPhone + '\n' +
+               'Building: ' + details.building + '\n' +
+               'Ward: ' + details.ward + '\n' +
+               'Access Start: ' + formattedStart + '\n' +
+               'Access End: ' + formattedEnd + '\n' +
+               'Ledger Row: ' + details.row + '\n\n' +
+               'This request will continue to alert daily until it is claimed.';
+    var htmlBody = '<p>Stake Managers,</p>' +
+                   '<p>A Kindoo access request is within the next 7 days and needs to be claimed.</p>' +
+                   (claimUrl
+                     ? '<p><a href="' + claimUrl + '" style="display:inline-block;padding:10px 16px;background:#1a73e8;color:#ffffff;text-decoration:none;border-radius:4px;">Claim this request</a></p>'
+                     : '<p><strong>Claim link unavailable.</strong> Publish the web app and set <code>WEB_APP_URL</code> to enable claims.</p>') +
+                   '<p><strong>Request ID:</strong> ' + details.requestId + '<br>' +
+                   '<strong>Requester:</strong> ' + details.requesterName + '<br>' +
+                   '<strong>Requester Email:</strong> ' + details.requesterEmail + '<br>' +
+                   '<strong>Requester Phone:</strong> ' + details.requesterPhone + '<br>' +
+                   '<strong>Building:</strong> ' + details.building + '<br>' +
+                   '<strong>Ward:</strong> ' + details.ward + '<br>' +
+                   '<strong>Access Start:</strong> ' + formattedStart + '<br>' +
+                   '<strong>Access End:</strong> ' + formattedEnd + '<br>' +
+                   '<strong>Ledger Row:</strong> ' + details.row + '</p>' +
+                   '<p>This request will continue to alert daily until it is claimed.</p>';
+
+    MailApp.sendEmail({
+      to: managerEmail,
+      subject: subject,
+      body: body,
+      htmlBody: htmlBody
+    });
+  }
 }
 
 function buildClaimResponseHtml_(title, body, accentColor) {
@@ -496,7 +510,7 @@ function sendKeyIssuancePromptEmail_(claimerEmail, requestId, details) {
   }
 
   var timeZone = Session.getScriptTimeZone();
-  var issueUrl = buildIssuedUrl_(requestId);
+  var issueUrl = buildIssuedUrl_(requestId, claimerEmail);
   var subject = 'Kindoo Key Assignment Needed: ' + requestId;
   var body = 'You claimed request ' + requestId + '.\n\n' +
              'Next step: schedule the Kindoo access key for this request.\n\n' +
@@ -605,12 +619,12 @@ function findRowByRequestId_(sheet, requestId, requestIdColumn) {
   return -1;
 }
 
-function claimRequest_(requestId, token) {
-  if (!requestId || !token) {
+function claimRequest_(requestId, actorEmail, token) {
+  if (!requestId || !actorEmail || !token) {
     return buildClaimResponseHtml_('Claim Failed', 'The claim link is missing required information.', '#d93025');
   }
 
-  if (token !== buildClaimToken_(requestId)) {
+  if (token !== buildClaimToken_(requestId, actorEmail)) {
     return buildClaimResponseHtml_('Claim Failed', 'This claim link is invalid.', '#d93025');
   }
 
@@ -645,8 +659,7 @@ function claimRequest_(requestId, token) {
     return buildClaimResponseHtml_('Already Claimed', alreadyClaimedMessage);
   }
 
-  var activeUserEmail = Session.getActiveUser().getEmail();
-  var claimedBy = activeUserEmail || 'Claimed via web app';
+  var claimedBy = normalizeEmail_(actorEmail);
   var now = new Date();
 
   sheet.getRange(row, claimStatusColumn).setValue('Claimed');
@@ -663,12 +676,12 @@ function claimRequest_(requestId, token) {
   );
 }
 
-function markRequestIssued_(requestId, token) {
-  if (!requestId || !token) {
+function markRequestIssued_(requestId, actorEmail, token) {
+  if (!requestId || !actorEmail || !token) {
     return buildClaimResponseHtml_('Issue Update Failed', 'The issued link is missing required information.', '#d93025');
   }
 
-  if (token !== buildIssuedToken_(requestId)) {
+  if (token !== buildIssuedToken_(requestId, actorEmail)) {
     return buildClaimResponseHtml_('Issue Update Failed', 'This issued link is invalid.', '#d93025');
   }
 
@@ -687,7 +700,7 @@ function markRequestIssued_(requestId, token) {
 
   var existingIssuedAt = parseSheetDate_(sheet.getRange(row, issuedAtColumn).getValue());
   var existingIssuedBy = String(sheet.getRange(row, issuedByColumn).getValue() || '').trim();
-  var issuerEmail = Session.getActiveUser().getEmail() || existingIssuedBy || String(sheet.getRange(row, getOrCreateColumnByHeader_(sheet, 'Claimed By')).getValue() || '').trim();
+  var issuerEmail = normalizeEmail_(actorEmail) || existingIssuedBy || String(sheet.getRange(row, getOrCreateColumnByHeader_(sheet, 'Claimed By')).getValue() || '').trim();
   var details = getRequesterDetailsForRow_(sheet, row);
 
   if (existingIssuedAt) {
@@ -719,11 +732,11 @@ function doGet(e) {
   var action = e && e.parameter ? e.parameter.action : '';
 
   if (action === 'claim') {
-    return claimRequest_(e.parameter.requestId, e.parameter.token);
+    return claimRequest_(e.parameter.requestId, e.parameter.actor, e.parameter.token);
   }
 
   if (action === 'issued') {
-    return markRequestIssued_(e.parameter.requestId, e.parameter.token);
+    return markRequestIssued_(e.parameter.requestId, e.parameter.actor, e.parameter.token);
   }
 
   return buildClaimResponseHtml_('Kindoo Claim App', 'This web app is running. Use a claim link from a manager alert email.');
@@ -760,7 +773,6 @@ function runUpcomingAccessScan() {
     var details = {
       row: rowNumber,
       requestId: requestId,
-      claimUrl: buildClaimUrl_(requestId),
       requesterName: getCellString_(rowValues, headerMap, 'Requester Name'),
       requesterEmail: getCellString_(rowValues, headerMap, 'Requester Email'),
       requesterPhone: getCellString_(rowValues, headerMap, 'Requester Phone Number'),
