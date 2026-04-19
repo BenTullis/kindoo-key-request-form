@@ -559,7 +559,7 @@ function sendClaimedManagerReminder_(claimerEmail, details) {
              'Ward: ' + details.ward + '\n' +
              'Access Start: ' + formattedStart + '\n' +
              'Access End: ' + formattedEnd + '\n\n' +
-             'Only click the issued button after you have actually scheduled the Kindoo access key.\n\n' +
+             'Only click the issued button after you have scheduled the Kindoo access key.\n\n' +
              'When the Kindoo key has been issued, click:\n' + issueUrl;
   var htmlBody = '<p>This is a reminder that you claimed request <strong>' + details.requestId + '</strong> and still need to schedule the Kindoo access key.</p>' +
                  '<p><strong>Requester:</strong> ' + details.requesterName + '<br>' +
@@ -569,7 +569,7 @@ function sendClaimedManagerReminder_(claimerEmail, details) {
                  '<strong>Ward:</strong> ' + details.ward + '<br>' +
                  '<strong>Access Start:</strong> ' + formattedStart + '<br>' +
                  '<strong>Access End:</strong> ' + formattedEnd + '</p>' +
-                 '<p><strong>Only click the button below after you have actually scheduled the Kindoo access key.</strong></p>' +
+                 '<p><strong>Only click the button below after you have scheduled the Kindoo access key.</strong></p>' +
                  '<p><a href="' + issueUrl + '" style="display:inline-block;padding:10px 16px;background:#188038;color:#ffffff;text-decoration:none;border-radius:4px;">Kindoo Key Issued</a></p>';
 
   MailApp.sendEmail({
@@ -621,7 +621,7 @@ function sendKeyIssuancePromptEmail_(claimerEmail, requestId, details) {
   var subject = 'Kindoo Key Assignment Needed: ' + requestId;
   var body = 'You claimed request ' + requestId + '.\n\n' +
              'Next step: schedule the Kindoo access key for this request.\n\n' +
-             'Only click the issued button after you have actually scheduled the Kindoo access key.\n\n' +
+             'Only click the issued button after you have scheduled the Kindoo access key.\n\n' +
              'Requester: ' + details.requesterName + '\n' +
              'Building: ' + details.building + '\n' +
              'Ward: ' + details.ward + '\n' +
@@ -630,7 +630,7 @@ function sendKeyIssuancePromptEmail_(claimerEmail, requestId, details) {
              'After you issue the Kindoo key, click this link:\n' + issueUrl;
   var htmlBody = '<p>You claimed request <strong>' + requestId + '</strong>.</p>' +
                  '<p><strong>Next step:</strong> schedule the Kindoo access key for this request.</p>' +
-                 '<p><strong>Only click the button below after you have actually scheduled the Kindoo access key.</strong></p>' +
+                 '<p><strong>Only click the button below after you have scheduled the Kindoo access key.</strong></p>' +
                  '<p><strong>Requester:</strong> ' + details.requesterName + '<br>' +
                  '<strong>Building:</strong> ' + details.building + '<br>' +
                  '<strong>Ward:</strong> ' + details.ward + '<br>' +
