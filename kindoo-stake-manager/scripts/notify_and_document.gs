@@ -683,7 +683,7 @@ function sendIssuedNotificationToOtherManagers_(issuerEmail, requestId, details)
 
 // Sends the final success email to the member once the key has actually been
 // issued.
-function sendFinalSuccessEmailToMember_(requestId, details) {
+function sendFinalSuccessEmailToMember_(details) {
   if (!details.requesterEmail || details.requesterEmail.indexOf('@') === -1) {
     return;
   }
@@ -867,7 +867,7 @@ function markRequestIssued_(requestId, actorEmail, token) {
   sheet.getRange(row, issuedAtColumn).setValue(now);
 
   sendIssuedNotificationToOtherManagers_(issuerEmail, requestId, details);
-  sendFinalSuccessEmailToMember_(requestId, details);
+  sendFinalSuccessEmailToMember_(details);
 
   return buildClaimResponseHtml_(
     'Kindoo Key Issued',
@@ -895,7 +895,6 @@ function doGet(e) {
 // requests to the claiming manager only until issuance.
 function runUpcomingAccessScan() {
   var sheet = getLedgerSheet_();
-  var statusColumn = getOrCreateStatusColumn_(sheet);
   var claimStatusColumn = getOrCreateColumnByHeader_(sheet, 'Manager Claim Status');
   var alertStatusColumn = getOrCreateColumnByHeader_(sheet, 'Manager Alert Status');
   var alertLastSentColumn = getOrCreateColumnByHeader_(sheet, 'Manager Alert Last Sent At');
@@ -950,9 +949,6 @@ function runUpcomingAccessScan() {
     );
     sheet.getRange(rowNumber, alertLastSentColumn).setValue(now);
     sheet.getRange(rowNumber, alertCountColumn).setValue(isNaN(existingAlertCount) ? 1 : existingAlertCount + 1);
-    sheet.getRange(rowNumber, statusColumn).setValue(
-      String(sheet.getRange(rowNumber, statusColumn).getValue() || '').trim()
-    );
   }
 }
 

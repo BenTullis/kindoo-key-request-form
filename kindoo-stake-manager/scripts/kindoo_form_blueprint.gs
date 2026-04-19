@@ -16,7 +16,7 @@ var LIVE_FORM_ID = '1ukbTtHgnHgpsce9_NAp196HlUBELamRkzRKHsBRxj9Y';
 var KINDOO_FORM_SPEC = {
   title: 'Kindoo Building Access Request Form',
   description: 'Only Building Schedulers are authorized to fill out this form.',
-  confirmationMessage: 'Thank you. An email has been sent to the requester and the Bishop of the selected ward.  The request has been logged on the Kindoo ledger, and the key will be assigned 7 days before the event. Thank you.',
+  confirmationMessage: 'Thank you. An email has been sent to the requester and the Bishop of the selected ward. The request has been logged on the Kindoo ledger, and the key will be assigned a few days before the event. Thank you.',
   settings: {
     collectEmail: false,
     allowResponseEdits: true,
