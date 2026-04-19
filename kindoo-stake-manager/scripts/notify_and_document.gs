@@ -1022,27 +1022,3 @@ function onFormSubmitTrigger(e) {
     isUpdatedSubmission ? "Updated and Scheduled" : "Vetted and Scheduled"
   );
 }
-
-// One-time helper for a fresh Apps Script project. Edit the placeholders,
-// then run this to seed the required Script Properties after an ownership
-// transfer or new deployment.
-function seedKindooScriptProperties() {
-  var properties = PropertiesService.getScriptProperties();
-
-  properties.setProperties({
-    LEDGER_SPREADSHEET_ID: '1LvGWUqpqwAzyTkMfLphH_5mO2hzPgjzwt64C5X-bknE',
-    LEDGER_SHEET_NAME: 'Form_Responses3',
-    WARD_1_EMAIL: 'benjamintullis+1st@gmail.com',
-    WARD_2_EMAIL: 'benjamintullis+2nd@gmail.com',
-    WARD_4_EMAIL: 'benjamintullis+4th@gmail.com',
-    WARD_5_EMAIL: 'benjamintullis+5th@gmail.com',
-    WARD_7_EMAIL: 'benjamintullis+7th@gmail.com',
-    STAKE_TECHNOLOGY_SPECIALIST_EMAIL: 'benjamintullis+tech_spec@gmail.com',
-    STAKE_MANAGER_EMAILS: 'benjamintullis+mgr1@gmail.com,benjamintullis+mgr2@gmail.com',
-    CLAIM_LINK_SECRET: 'kindoo-claim-2026-7f9a2c1d-4b81-4d5f-a93e-2a7d1b6c8e11',
-    ISSUED_LINK_SECRET: 'kindoo-issued-2026-8f4c2d91-6b5a-4f2e-9c13-7d8a1e5b3f42',
-    WEB_APP_URL: 'replace-me-web-app-url'
-  }, false);
-
-  Logger.log('Kindoo Script Properties seeded. Update placeholder values before production use.');
-}

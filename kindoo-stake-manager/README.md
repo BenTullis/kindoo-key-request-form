@@ -25,7 +25,6 @@ This project supports a scheduler-led process for LDS stake building access:
   - runs the upcoming-access scan
   - powers the claim and issued web-app actions
   - creates installable triggers
-  - includes a one-time Script Property seeding helper
 
 ## Script Properties
 
@@ -50,13 +49,12 @@ The Apps Script project expects these Script Properties:
 For a fresh Apps Script owner or a moved Google account, use this order:
 
 1. Paste `scripts/notify_and_document.gs` and `scripts/kindoo_form_blueprint.gs` into the live Apps Script project.
-2. Update the placeholder `WEB_APP_URL` value in `seedKindooScriptProperties()`.
-3. Run `seedKindooScriptProperties()` once.
-4. Run `createKindooTriggers()` once.
-5. Deploy the script as a web app:
+2. Create or update the required Script Properties manually in the live Apps Script project.
+3. Run `createKindooTriggers()` once.
+4. Deploy the script as a web app:
    - execute as `Me`
    - allow access for `Anyone with Google account`
-6. If the deployment URL changes, update `WEB_APP_URL` in Script Properties.
+5. If the deployment URL changes, update `WEB_APP_URL` in Script Properties.
 
 ## Triggered Workflow
 
@@ -88,8 +86,6 @@ The workflow diagram lives in a separate source-of-truth file so it can be updat
   - creates a separate new form for true replacement scenarios
 - `cleanupDuplicateRequestIdColumns()`
   - merges duplicate `Request ID` columns into the leftmost canonical column
-- `seedKindooScriptProperties()`
-  - seeds the current Apps Script project with the expected properties
 - `createKindooTriggers()`
   - recreates the spreadsheet submit and daily scan triggers
 
