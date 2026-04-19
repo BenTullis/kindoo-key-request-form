@@ -21,14 +21,14 @@ graph TD
         C3{Event within 7 days?}
         C4[Send Alert Email to Stake Managers]
         H1[Notify other Managers: 'Claimed']
-        H2[Send Daily Reminder to Claiming Manager]
+        H2["Send Daily Reminder to Claiming Manager <br/>(until issued)"]
         K1[Trigger Final Success Email]
     end
 
     subgraph "STAKE MANAGERS (Fulfillment)"
         G1[Manager clicks 'Claim' link in email]
         I1[Issue Kindoo Digital Key <br/>matching requested times]
-        J1[Mark Ticket as 'Issued' in Ledger]
+        L2{{"Issuing Manager receives <br/>'Success' Email"}}
     end
 
     subgraph "BISHOP (Oversight)"
@@ -50,7 +50,7 @@ graph TD
     G1 --> H1
     G1 --> H2
     H2 --> I1
-    I1 --> J1
-    J1 --> K1
+    I1 --> K1
     K1 -.-> L1
+    K1 -.-> L2
 ```

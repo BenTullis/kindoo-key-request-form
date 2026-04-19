@@ -646,41 +646,6 @@ function sendKeyIssuancePromptEmail_(claimerEmail, requestId, details) {
   });
 }
 
-// Notifies the non-claiming managers that the key has been issued and no
-// further action is needed from them.
-function sendIssuedNotificationToOtherManagers_(issuerEmail, requestId, details) {
-  var recipients = getStakeManagerEmails_().filter(function(email) {
-    return email && email.toLowerCase() !== String(issuerEmail || '').toLowerCase();
-  });
-
-  if (recipients.length === 0) {
-    return;
-  }
-
-  var timeZone = Session.getScriptTimeZone();
-  var issuerLabel = issuerEmail || 'A manager';
-  var subject = 'Kindoo Key Issued: ' + requestId;
-  var body = issuerLabel + ' has issued the Kindoo key for request ' + requestId + '.\n\n' +
-             'Requester: ' + details.requesterName + '\n' +
-             'Building: ' + details.building + '\n' +
-             'Ward: ' + details.ward + '\n' +
-             'Access Start: ' + Utilities.formatDate(details.startDate, timeZone, 'M/d/yyyy h:mm a') + '\n' +
-             'Access End: ' + Utilities.formatDate(details.endDate, timeZone, 'M/d/yyyy h:mm a');
-  var htmlBody = '<p><strong>' + issuerLabel + '</strong> has issued the Kindoo key for request <strong>' + requestId + '</strong>.</p>' +
-                 '<p><strong>Requester:</strong> ' + details.requesterName + '<br>' +
-                 '<strong>Building:</strong> ' + details.building + '<br>' +
-                 '<strong>Ward:</strong> ' + details.ward + '<br>' +
-                 '<strong>Access Start:</strong> ' + Utilities.formatDate(details.startDate, timeZone, 'M/d/yyyy h:mm a') + '<br>' +
-                 '<strong>Access End:</strong> ' + Utilities.formatDate(details.endDate, timeZone, 'M/d/yyyy h:mm a') + '</p>';
-
-  MailApp.sendEmail({
-    to: recipients.join(','),
-    subject: subject,
-    body: body,
-    htmlBody: htmlBody
-  });
-}
-
 // Sends the final success email to the member once the key has actually been
 // issued.
 function sendFinalSuccessEmailToMember_(details) {
@@ -704,6 +669,38 @@ function sendFinalSuccessEmailToMember_(details) {
 
   MailApp.sendEmail({
     to: details.requesterEmail,
+    subject: subject,
+    body: body,
+    htmlBody: htmlBody
+  });
+}
+
+// Sends a final completion email to the manager who issued the key so they
+// have an explicit confirmation that the workflow is complete.
+function sendFinalCompletionEmailToManager_(managerEmail, requestId, details) {
+  if (!managerEmail || managerEmail.indexOf('@') === -1) {
+    return;
+  }
+
+  var timeZone = Session.getScriptTimeZone();
+  var subject = 'Kindoo Request Completed: ' + requestId;
+  var body = 'The Kindoo access request has been completed.\n\n' +
+             'Requester: ' + details.requesterName + '\n' +
+             'Building: ' + details.building + '\n' +
+             'Ward: ' + details.ward + '\n' +
+             'Access Start: ' + Utilities.formatDate(details.startDate, timeZone, 'M/d/yyyy h:mm a') + '\n' +
+             'Access End: ' + Utilities.formatDate(details.endDate, timeZone, 'M/d/yyyy h:mm a') + '\n\n' +
+             'The member has been notified that the Kindoo key has been issued.';
+  var htmlBody = '<p>The Kindoo access request has been completed.</p>' +
+                 '<p><strong>Requester:</strong> ' + details.requesterName + '<br>' +
+                 '<strong>Building:</strong> ' + details.building + '<br>' +
+                 '<strong>Ward:</strong> ' + details.ward + '<br>' +
+                 '<strong>Access Start:</strong> ' + Utilities.formatDate(details.startDate, timeZone, 'M/d/yyyy h:mm a') + '<br>' +
+                 '<strong>Access End:</strong> ' + Utilities.formatDate(details.endDate, timeZone, 'M/d/yyyy h:mm a') + '</p>' +
+                 '<p>The member has been notified that the Kindoo key has been issued.</p>';
+
+  MailApp.sendEmail({
+    to: managerEmail,
     subject: subject,
     body: body,
     htmlBody: htmlBody
@@ -866,12 +863,12 @@ function markRequestIssued_(requestId, actorEmail, token) {
   sheet.getRange(row, issuedByColumn).setValue(issuerEmail || 'Issued via web app');
   sheet.getRange(row, issuedAtColumn).setValue(now);
 
-  sendIssuedNotificationToOtherManagers_(issuerEmail, requestId, details);
   sendFinalSuccessEmailToMember_(details);
+  sendFinalCompletionEmailToManager_(issuerEmail, requestId, details);
 
   return buildClaimResponseHtml_(
     'Kindoo Key Issued',
-    'Request ' + requestId + ' has been marked as issued. The member and the other managers have been notified.',
+    'Request ' + requestId + ' has been marked as issued. The member has been notified.',
     '#188038'
   );
 }
