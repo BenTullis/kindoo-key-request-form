@@ -16,10 +16,10 @@ This project supports a scheduler-led process for LDS stake building access:
 
 ## Scripts
 
-- `scripts/kindoo_form_blueprint.gs`
+- `kindoo-stake-manager/scripts/kindoo_form_blueprint.gs`
   - repairs the live Google Form in place with the canonical structure
   - can also create a separate new fallback form without mutating the live one
-- `scripts/notify_and_document.gs`
+- `kindoo-stake-manager/scripts/notify_and_document.gs`
   - handles form-submit notifications
   - assigns request IDs
   - runs the upcoming-access scan
@@ -48,7 +48,7 @@ The Apps Script project expects these Script Properties:
 
 For a fresh Apps Script owner or a moved Google account, use this order:
 
-1. Paste `scripts/notify_and_document.gs` and `scripts/kindoo_form_blueprint.gs` into the live Apps Script project.
+1. Paste `kindoo-stake-manager/scripts/notify_and_document.gs` and `kindoo-stake-manager/scripts/kindoo_form_blueprint.gs` into the live Apps Script project.
 2. Create or update the required Script Properties manually in the live Apps Script project.
 3. Run `createKindooTriggers()` once.
 4. Deploy the script as a web app:
@@ -76,7 +76,7 @@ For a fresh Apps Script owner or a moved Google account, use this order:
 
 The workflow diagram lives in a separate source-of-truth file so it can be updated in one place:
 
-- [Building Access Workflow](./building-access-workflow.md)
+- [Building Access Workflow](./kindoo-stake-manager/building-access-workflow.md)
 
 ## Maintenance Helpers
 
